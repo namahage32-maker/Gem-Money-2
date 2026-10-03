@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GemMoney2 v1</title>
+
+	<link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#121212">
+    <link rel="apple-touch-icon" href="icon.png">
+
+    <style>
+        :root {
+            --bg: #121212; --card: #1e1e1e; --text: #e5e5e5;
+            --blue: #4dabf7; --red: #ff6b6b; --yellow: #fcc419; --gray: #444;
+        }
+        body { background: var(--bg); color: var(--text); font-family: sans-serif; margin: 0; padding: 15px; padding-bottom: 80px; overflow-x: hidden; }
+        .flex { display: flex; } .justify-between { justify-content: space-between; } .items-center { align-items: center; }
+        .grid { display: grid; gap: 8px; } .grid-3 { grid-template-columns: repeat(3, 1fr); }
+        .card { background: var(--card); border-radius: 12px; border: 1px solid #333; padding: 12px; position: relative; }
+        h2 { color: var(--blue); font-style: italic; margin: 0; letter-spacing: -1px; }
+        input, select, button { background: #2a2a2a; color: white; border: 1px solid var(--gray); border-radius: 6px; padding: 8px; font-size: 14px; box-sizing: border-box; }
+        button { cursor: pointer; border: none; font-weight: bold; touch-action: manipulation; }
+        .btn-blue { background: var(--blue); color: white; } 
+        .btn-gray { background: #333; color: #aaa; }
+        .income { color: var(--blue); } .expense { color: var(--red); }
+        .tab-btn { background: none; border: none; color: #777; font-size: 12px; padding: 5px 10px; }
+        .tab-active { color: var(--blue); border-bottom: 2px solid var(--blue); }
+        
+        /* グラフエリアのCSSを修正：左側にラベル用の余白(margin-left: 35px)を確保 */
+        .chart-container { height: 200px; width: calc(100% - 35px); position: relative; margin-top: 20px; margin-left: 35px; border-left: 1px solid #444; border-bottom: 1px solid #444; }
+        svg { width: 100%; height: 100%; overflow: visible; }
+        .grid-line { stroke: #333; stroke-width: 1; }
+        .axis-label { fill: #666; font-size: 9px; }
+        .bar-income { fill: var(--blue); opacity: 0.8; }
+        
+        .history-item { border-bottom: 1px solid #222; padding: 10px 0; font-size: 14px; }
+        footer { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg); border-top: 1px solid #333; padding: 12px; display: flex; justify-content: space-between; font-size: 10px; z-index: 50; }
+        #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 100; align-items: center; justify-content: center; }
+
+        .numpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+        .numpad button { background: #2a2a2a; font-size: 20px; padding: 12px; border-radius: 8px; border: 1px solid #333; }
+        .numpad button:active { background: #444; }
+        .amt-display { flex: 1; text-align: right; font-size: 20px; font-weight: bold; background: #111; color: var(--blue); border: 1px solid #444; outline: none; }
+
+        .suggest-list {
+            position: absolute; top: 100%; left: 0; right: 0;
+            background: #2a2a2a; border: 1px solid var(--gray); border-top: none;
+            border-radius: 0 0 6px 6px; z-index: 20; max-height: 150px; overflow-y: auto;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.8); display: none;
+        }
+        .suggest-item { padding: 12px; border-bottom: 1px solid #333; cursor: pointer; color: var(--text); font-size: 14px; }
+        .suggest-item:last-child { border-bottom: none; }
+        .suggest-item:active { background: #444; }
+        .suggest-cat { font-size: 11px; color: var(--blue); margin-left: 8px; border: 1px solid var(--blue); padding: 2px 4px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+    <div class="flex justify-between items-center mb-4">
+        <h2>GemMoney v13</h2>
+        <div class="flex">
+            <button onclick="setView('day')" id="t-day" class="tab-btn">一日</button>
+            <button onclick="setView('month')" id="t-month" class="tab-btn tab-active">月別</button>
+            <button onclick="setView('stats')" id="t-stats" class="tab-btn">統計</button>
+        </div>
+    </div>
+
+    <div id="view-main">
+        <div class="flex justify-between items-center card mb-4">
+            <button onclick="move(-1)" style="color:var(--blue); padding:5px 15px;">◀</button>
+            <div onclick="openJump()" id="label-period" style="font-weight:bold; font-size:16px;">2026年 3月</div>
+            <button onclick="move(1)" style="color:var(--blue); padding:5px 15px;">▶</button>
+        </div>
+        
+        <div class="grid grid-3 mb-4">
+            <div class="card" style="text-align:center"><small>IN</small><div id="sum-in" class="income">0</div></div>
+            <div class="card" style="text-align:center"><small>OUT</small><div id="sum-out" class="expense">0</div></div>
+            <div class="card" style="text-align:center"><small>BAL</small><div id="sum-bal">0</div></div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="flex gap-2 mb-2">
+                <input type="date" id="in-date" style="flex:1" onchange="syncFromInput()">
+                <select id="in-cat" style="flex:1"></select>
+            </div>
+            
+            <div class="flex gap-2 mb-2">
+                <div style="position:relative; flex:1;">
+                    <input type="text" id="in-title" placeholder="項目名(任意)" style="width:100%" autocomplete="off" oninput="handleSuggest(this.value)" onblur="setTimeout(()=>closeSuggest(), 200)">
+                    <div id="suggest-box" class="suggest-list"></div>
+                </div>
+            </div>
+
+            <div class="flex gap-2 items-center">
+                <div style="font-weight:bold; color:#777; font-size:18px;">¥</div>
+                <input type="text" id="in-amt" class="amt-display" placeholder="0" readonly inputmode="none" data-val="">
+                <button id="btn-cancel" onclick="cancelEdit()" class="btn-gray" style="display:none; padding:12px 15px; font-size:16px;">✕</button>
+                <button id="btn-add" onclick="add()" class="btn-blue" style="width:80px; font-size:16px; padding:12px;">ADD</button>
+            </div>
+            
+            <div class="numpad">
+                <button onclick="num(7)">7</button>
+                <button onclick="num(8)">8</button>
+                <button onclick="num(9)">9</button>
+                <button onclick="num(4)">4</button>
+                <button onclick="num(5)">5</button>
+                <button onclick="num(6)">6</button>
+                <button onclick="num(1)">1</button>
+                <button onclick="num(2)">2</button>
+                <button onclick="num(3)">3</button>
+                <button onclick="num('C')" style="color:var(--red)">C</button>
+                <button onclick="num(0)">0</button>
+                <button onclick="num('BS')" style="color:var(--yellow)">⌫</button>
+            </div>
+        </div>
+        
+        <div id="list"></div>
+    </div>
+
+    <div id="view-stats" style="display:none">
+        <div class="flex gap-2 mb-4">
+            <select id="stat-unit" onchange="drawStats()" style="flex:1">
+                <option value="month">月単位（直近12回）</option>
+                <option value="year">年単位（全期間）</option>
+            </select>
+            <button onclick="drawStats()" class="btn-gray">更新</button>
+        </div>
+        <div class="card mb-4">
+            <div style="font-size:12px; font-weight:bold">収支時系列（積立推移）</div>
+            <div id="chart-ts" class="chart-container"></div>
+            <div id="chart-legend"></div>
+        </div>
+        <div class="card">
+            <div class="flex justify-between items-center mb-2">
+                <div style="font-size:12px; font-weight:bold">カテゴリ別推移</div>
+                <select id="stat-cat" onchange="drawStats()" style="font-size:10px; padding:2px"></select>
+            </div>
+            <div id="chart-cat" class="chart-container"></div>
+        </div>
+    </div>
+
+	<footer>
+    	<div class="flex gap-2">
+	        <button onclick="openExportModal('csv')" class="btn-gray">CSV</button>
+	        <button onclick="openExportModal('json')" class="btn-gray">JSON</button>
+	        <label class="btn-gray" style="padding:8px">Import<input type="file" style="display:none" onchange="importJSON(event)"></label>
+	    </div>
+	    <button onclick="manageCats()" style="color:#666">Edit Cats</button>
+	</footer>
+
+    <div id="modal" onclick="this.style.display='none'">
+        <div class="card" style="width:80%; max-height:70%; overflow:auto" onclick="event.stopPropagation()">
+            <div id="m-title" style="text-align:center; padding:10px; border-bottom:1px solid #333; font-weight:bold"></div>
+            <div id="m-body" class="grid grid-3" style="padding:15px"></div>
+        </div>
+    </div>
+
+    <script>
+        let db = JSON.parse(localStorage.getItem('gem_db')) || [];
+        let cats = JSON.parse(localStorage.getItem('gem_cats')) || ["食費", "日用雑貨", "車", "交際費", "収入"];
+        let mode = 'month', focus = new Date();
+        let currentAmt = "";
+        let editId = null; 
+
+        function save() { localStorage.setItem('gem_db', JSON.stringify(db)); localStorage.setItem('gem_cats', JSON.stringify(cats)); }
+
+        function init() {
+            document.getElementById('in-date').valueAsDate = new Date();
+            renderCats();
+            render();
+        }
+
+        function renderCats() {
+            const h = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+            document.getElementById('in-cat').innerHTML = h;
+            document.getElementById('stat-cat').innerHTML = cats.filter(c=>c!=='収入').map(c => `<option value="${c}">${c}</option>`).join('');
+        }
+
+        function setView(m) {
+            mode = m;
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('tab-active'));
+            document.getElementById('t-'+m).classList.add('tab-active');
+            document.getElementById('view-main').style.display = (m==='stats'?'none':'block');
+            document.getElementById('view-stats').style.display = (m==='stats'?'block':'none');
+            if(m === 'stats') drawStats(); else render();
+        }
+
+        function move(d) {
+            if(mode==='day') focus.setDate(focus.getDate()+d);
+            else focus.setMonth(focus.getMonth()+d);
+            render();
+        }
+
+        function syncFromInput() {
+            const d = document.getElementById('in-date').value;
+            if(d) {
+                const parts = d.split('-');
+                focus = new Date(parts[0], parts[1] - 1, parts[2]);
+                if(mode !== 'day') setView('day'); else render();
+            }
+        }
+
+        function handleSuggest(val) {
+            const box = document.getElementById('suggest-box');
+            if (!val) { box.style.display = 'none'; return; }
+            const matches = [];
+            const seen = new Set();
+            for (let i = 0; i < db.length; i++) {
+                const item = db[i];
+                if (item.title && item.title.includes(val) && !seen.has(item.title)) {
+                    seen.add(item.title);
+                    matches.push({ title: item.title, category: item.category });
+                }
+                if (matches.length >= 5) break;
+            }
+            if (matches.length > 0) {
+                box.innerHTML = matches.map(m => 
+                    `<div class="suggest-item" onclick="selectSuggest('${m.title}', '${m.category}')">
+                        ${m.title} <span class="suggest-cat">${m.category}</span>
+                    </div>`
+                ).join('');
+                box.style.display = 'block';
+            } else {
+                box.style.display = 'none';
+            }
+        }
+
+        function selectSuggest(title, cat) {
+            document.getElementById('in-title').value = title;
+            if (cats.includes(cat)) document.getElementById('in-cat').value = cat;
+            closeSuggest();
+        }
+
+        function closeSuggest() { document.getElementById('suggest-box').style.display = 'none'; }
+
+        function num(n) {
+            if (n === 'C') currentAmt = "";
+            else if (n === 'BS') currentAmt = currentAmt.slice(0, -1);
+            else if (currentAmt.length < 8) currentAmt += n;
+            const amtDisplay = document.getElementById('in-amt');
+            amtDisplay.dataset.val = currentAmt;
+            amtDisplay.value = currentAmt ? parseInt(currentAmt).toLocaleString() : "";
+        }
+
+        function edit(id) {
+            const item = db.find(i => i.id === id);
+            if (!item) return;
+            
+            editId = id; 
+            document.getElementById('in-date').value = item.date;
+            document.getElementById('in-cat').value = item.category;
+            document.getElementById('in-title').value = item.title;
+            
+            currentAmt = item.amount.toString();
+            const amtDisplay = document.getElementById('in-amt');
+            amtDisplay.dataset.val = currentAmt;
+            amtDisplay.value = parseInt(currentAmt).toLocaleString();
+
+            const btnAdd = document.getElementById('btn-add');
+            btnAdd.innerText = "更新";
+            btnAdd.style.background = "var(--yellow)";
+            btnAdd.style.color = "#111";
+
+            document.getElementById('btn-cancel').style.display = 'block';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function cancelEdit() {
+            editId = null; 
+            document.getElementById('in-title').value = ''; 
+            currentAmt = ""; 
+            document.getElementById('in-amt').value = ''; 
+            document.getElementById('in-amt').dataset.val = '';
+            
+            const btnAdd = document.getElementById('btn-add');
+            btnAdd.innerText = "ADD";
+            btnAdd.style.background = "var(--blue)";
+            btnAdd.style.color = "white";
+
+            document.getElementById('btn-cancel').style.display = 'none';
+            
+            if (mode === 'day') {
+                const y = focus.getFullYear(), m = String(focus.getMonth() + 1).padStart(2, '0'), d = String(focus.getDate()).padStart(2, '0');
+                document.getElementById('in-date').value = `${y}-${m}-${d}`;
+            } else {
+                document.getElementById('in-date').valueAsDate = new Date();
+            }
+        }
+
+        function add() {
+            const d = document.getElementById('in-date').value;
+            const t = document.getElementById('in-title').value || '未分類';
+            const a = parseInt(document.getElementById('in-amt').dataset.val) || 0;
+            const c = document.getElementById('in-cat').value;
+            
+            if(!a || !d) return;
+            
+            if (editId) {
+                const index = db.findIndex(i => i.id === editId);
+                if (index !== -1) {
+                    db[index] = { ...db[index], date: d, title: t, amount: a, category: c };
+                }
+            } else {
+                db.push({ id: Date.now(), date: d, title: t, amount: a, category: c });
+            }
+            
+            db.sort((a,b) => new Date(b.date) - new Date(a.date));
+            save(); render();
+            cancelEdit(); 
+            closeSuggest();
+        }
+
+        function render() {
+            const label = document.getElementById('label-period');
+            label.innerText = mode === 'day' ? focus.toLocaleDateString('ja-JP') : `${focus.getFullYear()}年 ${focus.getMonth()+1}月`;
+            if (mode === 'day' && !editId) { 
+                const y = focus.getFullYear(), m = String(focus.getMonth() + 1).padStart(2, '0'), d = String(focus.getDate()).padStart(2, '0');
+                document.getElementById('in-date').value = `${y}-${m}-${d}`;
+            }
+            let si=0, so=0, h='', last='';
+            const filtered = db.filter(i => {
+                const d = new Date(i.date);
+                if(mode==='day') return d.toDateString() === focus.toDateString();
+                return d.getFullYear() === focus.getFullYear() && d.getMonth() === focus.getMonth();
+            });
+            filtered.forEach(i => {
+                i.category === '収入' ? si+=i.amount : so+=i.amount;
+                if(mode==='month' && last !== i.date) { h += `<div style="font-size:10px; color:#555; margin-top:10px; border-bottom:1px solid #222">${i.date}</div>`; last = i.date; }
+                
+                h += `
+                <div class="history-item flex justify-between items-center">
+                    <div>
+                        <small style="color:#666">${i.category}</small>
+                        <div>${i.title}</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <b class="${i.category==='収入'?'income':'expense'}">¥${i.amount.toLocaleString()}</b>
+                        <div class="flex">
+                            <button onclick="edit(${i.id})" style="background:none; color:var(--blue); font-size:16px; padding:5px 10px;">✎</button>
+                            <button onclick="del(${i.id})" style="background:none; color:#555; font-size:16px; padding:5px;">✕</button>
+                        </div>
+                    </div>
+                </div>`;
+            });
+            document.getElementById('list').innerHTML = h || '<div style="text-align:center; padding:40px; color:#444">NO DATA</div>';
+            document.getElementById('sum-in').innerText = si.toLocaleString();
+            document.getElementById('sum-out').innerText = so.toLocaleString();
+            document.getElementById('sum-bal').innerText = (si-so).toLocaleString();
+        }
+
+        function del(id) { if(confirm('削除しますか？')) { db=db.filter(i=>i.id!==id); save(); render(); } }
+
+        function drawStats() {
+            const unit = document.getElementById('stat-unit').value;
+            const periods = [];
+            const now = new Date();
+            if(unit === 'month') {
+                for(let i=11; i>=0; i--) {
+                    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+                    periods.push(`${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}`);
+                }
+            } else {
+                const years = [...new Set(db.map(i => i.date.substring(0,4)))].sort();
+                years.forEach(y => periods.push(y));
+            }
+
+            const colorPalette = ['#ff6b6b', '#fcc419', '#51cf66', '#845ef7', '#f06595', '#20c997', '#ff922b', '#fa5252', '#fd7e14', '#40c057', '#be4bdb'];
+            const expCats = cats.filter(c => c !== '収入');
+            const catColors = {};
+            expCats.forEach((c, i) => { catColors[c] = colorPalette[i % colorPalette.length]; });
+
+            const data = periods.map(p => {
+                const items = db.filter(i => i.date.startsWith(p));
+                let income = 0, expense = 0;
+                const expensesByCat = {};
+                items.forEach(i => {
+                    if(i.category === '収入') {
+                        income += i.amount;
+                    } else {
+                        expense += i.amount;
+                        expensesByCat[i.category] = (expensesByCat[i.category] || 0) + i.amount;
+                    }
+                });
+                return { label: unit==='month' ? p.split('-')[1]+'月' : p+'年', income, expense, expensesByCat };
+            });
+
+            const maxRaw = Math.max(...data.map(d => Math.max(d.income, d.expense)), 10000);
+            const power = Math.pow(10, Math.floor(Math.log10(maxRaw)));
+            const maxVal = Math.ceil(maxRaw / power) * power;
+
+            const tsCont = document.getElementById('chart-ts');
+            let tsSvg = `<svg viewBox="0 0 320 160">`;
+            for(let i=0; i<=4; i++) {
+                const y = 140 - (i * 30);
+                const val = (maxVal / 4) * i;
+                tsSvg += `<line x1="0" y1="${y}" x2="320" y2="${y}" class="grid-line" />`;
+                tsSvg += `<text x="-35" y="${y+3}" class="axis-label">${val>=10000?(val/10000)+'万':val}</text>`;
+            }
+            const step = 320 / (data.length || 1);
+            data.forEach((d, i) => {
+                const x = i * step + 5;
+                const hIn = (d.income / maxVal) * 120;
+                tsSvg += `<rect x="${x}" y="${140-hIn}" width="${step*0.35}" height="${hIn}" class="bar-income" />`;
+                
+                let currentY = 140;
+                expCats.forEach(cat => {
+                    if(d.expensesByCat[cat]) {
+                        const hOut = (d.expensesByCat[cat] / maxVal) * 120;
+                        currentY -= hOut;
+                        tsSvg += `<rect x="${x+step*0.4}" y="${currentY}" width="${step*0.35}" height="${hOut}" fill="${catColors[cat]}" stroke="var(--card)" stroke-width="0.8" opacity="0.95" />`;
+                    }
+                });
+                tsSvg += `<text x="${x}" y="155" class="axis-label" style="font-size:7px">${d.label}</text>`;
+            });
+            tsSvg += `</svg>`;
+            tsCont.innerHTML = tsSvg;
+
+            const legendCont = document.getElementById('chart-legend');
+            let legendHtml = `<div class="flex" style="flex-wrap:wrap; gap:8px; justify-content:center; margin-top:12px;">`;
+            expCats.forEach(cat => {
+                legendHtml += `<div class="flex items-center gap-1" style="font-size:10px; color:#bbb;"><div style="width:10px; height:10px; background:${catColors[cat]}; border-radius:2px;"></div>${cat}</div>`;
+            });
+            legendHtml += `</div>`;
+            if(legendCont) legendCont.innerHTML = legendHtml;
+
+            const catCont = document.getElementById('chart-cat');
+            const targetCat = document.getElementById('stat-cat').value;
+            const targetColor = targetCat === '収入' ? 'var(--blue)' : (catColors[targetCat] || 'var(--blue)');
+            const catData = periods.map(p => db.filter(i => i.date.startsWith(p) && i.category === targetCat).reduce((s,i)=>s+i.amount,0));
+            const catMaxRaw = Math.max(...catData, 5000);
+            const catPower = Math.pow(10, Math.floor(Math.log10(catMaxRaw)));
+            const catMax = Math.ceil(catMaxRaw / catPower) * catPower;
+
+            let catSvg = `<svg viewBox="0 0 320 160">`;
+            for(let i=0; i<=4; i++) {
+                const y = 140 - (i * 30);
+                catSvg += `<line x1="0" y1="${y}" x2="320" y2="${y}" class="grid-line" />`;
+                catSvg += `<text x="-35" y="${y+3}" class="axis-label">${((catMax/4)*i/10000)}万</text>`;
+            }
+            let points = "";
+            catData.forEach((val, i) => {
+                const x = i * step + (step/2);
+                const y = 140 - (val / catMax) * 120;
+                points += `${x},${y} `;
+                catSvg += `<circle cx="${x}" cy="${y}" r="3" fill="${targetColor}" />`;
+            });
+            catSvg += `<polyline points="${points}" fill="none" stroke="${targetColor}" stroke-width="2" />`;
+            periods.forEach((p, i) => {
+                const label = unit==='month' ? p.split('-')[1]+'月' : p+'年';
+                catSvg += `<text x="${i*step+2}" y="155" class="axis-label" style="font-size:7px">${label}</text>`;
+            });
+            catSvg += `</svg>`;
+            catCont.innerHTML = catSvg;
+        }
+
+        function openJump() {
+            const m = document.getElementById('modal'), b = document.getElementById('m-body');
+            document.getElementById('m-title').innerText = "年を選択";
+            b.innerHTML = [2024,2025,2026,2027].map(y => `<div class="card" onclick="jumpToYear(${y})">${y}年</div>`).join('');
+            m.style.display = 'flex';
+        }
+        function jumpToYear(y) { focus.setFullYear(y); render(); document.getElementById('modal').style.display='none'; }
+
+		let exportFormat = 'json';
+
+		function openExportModal(format) {
+		    exportFormat = format;
+		    const m = document.getElementById('modal');
+		    const b = document.getElementById('m-body');
+		    document.getElementById('m-title').innerText = `${format.toUpperCase()} 出力期間を選択`;
+    
+		    b.style.gridTemplateColumns = 'repeat(2, 1fr)';
+		    b.innerHTML = `
+		        <button class="card" onclick="runExport('all')" style="padding:15px; text-align:center;">全期間</button>
+		        <button class="card" onclick="runExport('year')" style="padding:15px; text-align:center;">今年</button>
+		        <button class="card" onclick="runExport('3months')" style="padding:15px; text-align:center;">直近3ヶ月</button>
+		        <button class="card" onclick="runExport('month')" style="padding:15px; text-align:center;">今月</button>
+		    `;
+		    m.style.display = 'flex';
+		}
+
+		function runExport(rangeType) {
+		    const now = new Date();
+		    let filteredDb = [];
+		    let filenameSuffix = "";
+
+		    if (rangeType === 'all') {
+		        filteredDb = [...db];
+		        filenameSuffix = "all";
+		    } else if (rangeType === 'year') {
+		        const thisYear = now.getFullYear().toString();
+		        filteredDb = db.filter(i => i.date.startsWith(thisYear));
+		        filenameSuffix = `${thisYear}`;
+		    } else if (rangeType === '3months') {
+		        // 当月を含む直近3ヶ月（90日前以降）
+		        const cutoff = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+		        const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-01`;
+		        filteredDb = db.filter(i => i.date >= cutoffStr);
+		        filenameSuffix = "recent_3months";
+		    } else if (rangeType === 'month') {
+		        const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+		        filteredDb = db.filter(i => i.date.startsWith(thisMonth));
+		        filenameSuffix = thisMonth;
+		    }
+
+		    if (exportFormat === 'json') {
+		        // 今後のPC用アプリで読み込みやすいよう構造化
+		        const payload = {
+		            exportedAt: new Date().toISOString(),
+		            range: rangeType,
+		            cats: cats,
+		            db: filteredDb
+		        };
+		        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+		        const a = document.createElement('a');
+		        a.href = URL.createObjectURL(blob);
+		        a.download = `GemMoney_${filenameSuffix}.json`;
+		        a.click();
+		    } else {
+		        let csv = "\uFEFF日付,カテゴリ,項目,金額\n" + filteredDb.map(r => `${r.date},${r.category},${r.title},${r.amount}`).join("\n");
+		        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+		        const a = document.createElement('a');
+		        a.href = URL.createObjectURL(blob);
+		        a.download = `GemMoney_${filenameSuffix}.csv`;
+		        a.click();
+		    }
+
+		    document.getElementById('modal').style.display = 'none';
+		}
+        function importJSON(e) {
+            const r = new FileReader(); r.onload=(ev)=>{
+                const d = JSON.parse(ev.target.result);
+                if(d.db) { db=d.db; cats=d.cats||cats; save(); location.reload(); }
+            }; r.readAsText(e.target.files[0]);
+        }
+        function manageCats() {
+            const n = prompt("カテゴリ(,区切り)", cats.join(","));
+            if(n) { cats=n.split(",").map(s=>s.trim()); save(); renderCats(); render(); }
+        }
+        init();
+
+		if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('sw.js').then(function(registration) {
+                    console.log('ServiceWorker登録成功:', registration.scope);
+                }, function(err) {
+                    console.log('ServiceWorker登録失敗:', err);
+                });
+            });
+        }
+    </script>
+</body>
+</html>
