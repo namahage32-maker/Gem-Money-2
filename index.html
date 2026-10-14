@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GemMoney2 v1</title>
+    <title>GemMoney2 v2</title>
 
-	<link rel="manifest" href="manifest.json">
+    <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#121212">
     <link rel="apple-touch-icon" href="icon.png">
 
@@ -16,6 +16,8 @@
         }
         body { background: var(--bg); color: var(--text); font-family: sans-serif; margin: 0; padding: 15px; padding-bottom: 80px; overflow-x: hidden; }
         .flex { display: flex; } .justify-between { justify-content: space-between; } .items-center { align-items: center; }
+        .gap-1 { gap: 4px; } .gap-2 { gap: 8px; }
+        .mb-2 { margin-bottom: 8px; } .mb-4 { margin-bottom: 16px; }
         .grid { display: grid; gap: 8px; } .grid-3 { grid-template-columns: repeat(3, 1fr); }
         .card { background: var(--card); border-radius: 12px; border: 1px solid #333; padding: 12px; position: relative; }
         h2 { color: var(--blue); font-style: italic; margin: 0; letter-spacing: -1px; }
@@ -27,7 +29,6 @@
         .tab-btn { background: none; border: none; color: #777; font-size: 12px; padding: 5px 10px; }
         .tab-active { color: var(--blue); border-bottom: 2px solid var(--blue); }
         
-        /* グラフエリアのCSSを修正：左側にラベル用の余白(margin-left: 35px)を確保 */
         .chart-container { height: 200px; width: calc(100% - 35px); position: relative; margin-top: 20px; margin-left: 35px; border-left: 1px solid #444; border-bottom: 1px solid #444; }
         svg { width: 100%; height: 100%; overflow: visible; }
         .grid-line { stroke: #333; stroke-width: 1; }
@@ -35,6 +36,7 @@
         .bar-income { fill: var(--blue); opacity: 0.8; }
         
         .history-item { border-bottom: 1px solid #222; padding: 10px 0; font-size: 14px; }
+        .memo-text { font-size: 11px; color: #888; margin-top: 3px; }
         footer { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg); border-top: 1px solid #333; padding: 12px; display: flex; justify-content: space-between; font-size: 10px; z-index: 50; }
         #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 100; align-items: center; justify-content: center; }
 
@@ -53,12 +55,14 @@
         .suggest-item:last-child { border-bottom: none; }
         .suggest-item:active { background: #444; }
         .suggest-cat { font-size: 11px; color: var(--blue); margin-left: 8px; border: 1px solid var(--blue); padding: 2px 4px; border-radius: 4px; }
+        
+        .memo-btn-active { border: 1px solid var(--blue) !important; color: var(--blue) !important; }
     </style>
 </head>
 <body>
 
     <div class="flex justify-between items-center mb-4">
-        <h2>GemMoney2 v1</h2>
+        <h2>GemMoney2 v2</h2>
         <div class="flex">
             <button onclick="setView('day')" id="t-day" class="tab-btn">一日</button>
             <button onclick="setView('month')" id="t-month" class="tab-btn tab-active">月別</button>
@@ -69,7 +73,7 @@
     <div id="view-main">
         <div class="flex justify-between items-center card mb-4">
             <button onclick="move(-1)" style="color:var(--blue); padding:5px 15px;">◀</button>
-            <div onclick="openJump()" id="label-period" style="font-weight:bold; font-size:16px;">2026年 3月</div>
+            <div onclick="openJump()" id="label-period" style="font-weight:bold; font-size:16px; cursor:pointer;">2026年 3月</div>
             <button onclick="move(1)" style="color:var(--blue); padding:5px 15px;">▶</button>
         </div>
         
@@ -90,6 +94,11 @@
                     <input type="text" id="in-title" placeholder="項目名(任意)" style="width:100%" autocomplete="off" oninput="handleSuggest(this.value)" onblur="setTimeout(()=>closeSuggest(), 200)">
                     <div id="suggest-box" class="suggest-list"></div>
                 </div>
+                <button type="button" id="btn-memo-toggle" onclick="toggleMemo()" class="btn-gray" style="padding:0 12px; font-size:16px;" title="メモを入力">💬</button>
+            </div>
+
+            <div id="memo-wrap" class="mb-2" style="display:none;">
+                <input type="text" id="in-memo" placeholder="メモ・注釈(任意)" style="width:100%; font-size:13px; background:#181818;" autocomplete="off" oninput="updateMemoBtnState()">
             </div>
 
             <div class="flex gap-2 items-center">
@@ -140,30 +149,35 @@
         </div>
     </div>
 
-	<footer>
-    	<div class="flex gap-2">
-	        <button onclick="openExportModal('csv')" class="btn-gray">CSV</button>
-	        <button onclick="openExportModal('json')" class="btn-gray">JSON</button>
-	        <label class="btn-gray" style="padding:8px">Import<input type="file" style="display:none" onchange="importJSON(event)"></label>
-	    </div>
-	    <button onclick="manageCats()" style="color:#666">Edit Cats</button>
-	</footer>
+    <footer>
+        <div class="flex gap-2">
+            <button onclick="openExportModal('csv')" class="btn-gray">CSV</button>
+            <button onclick="openExportModal('json')" class="btn-gray">JSON</button>
+            <label class="btn-gray" style="padding:8px">Import<input type="file" accept=".json" style="display:none" onchange="importJSON(event)"></label>
+        </div>
+        <button onclick="manageCats()" style="color:#666">Edit Cats</button>
+    </footer>
 
     <div id="modal" onclick="this.style.display='none'">
-        <div class="card" style="width:80%; max-height:70%; overflow:auto" onclick="event.stopPropagation()">
+        <div class="card" style="width:85%; max-width:360px; max-height:75%; overflow:auto" onclick="event.stopPropagation()">
             <div id="m-title" style="text-align:center; padding:10px; border-bottom:1px solid #333; font-weight:bold"></div>
             <div id="m-body" class="grid grid-3" style="padding:15px"></div>
         </div>
     </div>
 
     <script>
+        const DEFAULT_CATS = ["食費", "車", "生活雑費", "育児", "税金", "ふるさと納税", "緊急支出", "保険", "遊興費", "業務費", "投資", "負債", "収入"];
         let db = JSON.parse(localStorage.getItem('gem_db')) || [];
-        let cats = JSON.parse(localStorage.getItem('gem_cats')) || ["食費", "日用雑貨", "車", "交際費", "収入"];
+        let cats = JSON.parse(localStorage.getItem('gem_cats')) || DEFAULT_CATS;
         let mode = 'month', focus = new Date();
         let currentAmt = "";
         let editId = null; 
+        let pendingImportData = null;
 
-        function save() { localStorage.setItem('gem_db', JSON.stringify(db)); localStorage.setItem('gem_cats', JSON.stringify(cats)); }
+        function save() {
+            localStorage.setItem('gem_db', JSON.stringify(db));
+            localStorage.setItem('gem_cats', JSON.stringify(cats));
+        }
 
         function init() {
             document.getElementById('in-date').valueAsDate = new Date();
@@ -201,6 +215,28 @@
             }
         }
 
+        function toggleMemo() {
+            const wrap = document.getElementById('memo-wrap');
+            if (wrap.style.display === 'none') {
+                wrap.style.display = 'block';
+                document.getElementById('in-memo').focus();
+            } else {
+                wrap.style.display = 'none';
+            }
+            updateMemoBtnState();
+        }
+
+        function updateMemoBtnState() {
+            const val = document.getElementById('in-memo').value.trim();
+            const wrap = document.getElementById('memo-wrap');
+            const btn = document.getElementById('btn-memo-toggle');
+            if (val || wrap.style.display === 'block') {
+                btn.classList.add('memo-btn-active');
+            } else {
+                btn.classList.remove('memo-btn-active');
+            }
+        }
+
         function handleSuggest(val) {
             const box = document.getElementById('suggest-box');
             if (!val) { box.style.display = 'none'; return; }
@@ -216,7 +252,7 @@
             }
             if (matches.length > 0) {
                 box.innerHTML = matches.map(m => 
-                    `<div class="suggest-item" onclick="selectSuggest('${m.title}', '${m.category}')">
+                    `<div class="suggest-item" onclick="selectSuggest('${m.title.replace(/'/g, "\\'")}', '${m.category.replace(/'/g, "\\'")}')">
                         ${m.title} <span class="suggest-cat">${m.category}</span>
                     </div>`
                 ).join('');
@@ -249,9 +285,19 @@
             
             editId = id; 
             document.getElementById('in-date').value = item.date;
+            if (!cats.includes(item.category)) {
+                cats.push(item.category);
+                renderCats();
+            }
             document.getElementById('in-cat').value = item.category;
             document.getElementById('in-title').value = item.title;
             
+            const memoInput = document.getElementById('in-memo');
+            const memoWrap = document.getElementById('memo-wrap');
+            memoInput.value = item.memo || '';
+            memoWrap.style.display = item.memo ? 'block' : 'none';
+            updateMemoBtnState();
+
             currentAmt = item.amount.toString();
             const amtDisplay = document.getElementById('in-amt');
             amtDisplay.dataset.val = currentAmt;
@@ -269,6 +315,10 @@
         function cancelEdit() {
             editId = null; 
             document.getElementById('in-title').value = ''; 
+            document.getElementById('in-memo').value = '';
+            document.getElementById('memo-wrap').style.display = 'none';
+            updateMemoBtnState();
+
             currentAmt = ""; 
             document.getElementById('in-amt').value = ''; 
             document.getElementById('in-amt').dataset.val = '';
@@ -290,7 +340,8 @@
 
         function add() {
             const d = document.getElementById('in-date').value;
-            const t = document.getElementById('in-title').value || '未分類';
+            const t = document.getElementById('in-title').value.trim() || '未分類';
+            const m = document.getElementById('in-memo').value.trim();
             const a = parseInt(document.getElementById('in-amt').dataset.val) || 0;
             const c = document.getElementById('in-cat').value;
             
@@ -299,10 +350,14 @@
             if (editId) {
                 const index = db.findIndex(i => i.id === editId);
                 if (index !== -1) {
-                    db[index] = { ...db[index], date: d, title: t, amount: a, category: c };
+                    const updated = { ...db[index], date: d, title: t, amount: a, category: c };
+                    if (m) updated.memo = m; else delete updated.memo;
+                    db[index] = updated;
                 }
             } else {
-                db.push({ id: Date.now(), date: d, title: t, amount: a, category: c });
+                const newItem = { id: Date.now(), date: d, title: t, amount: a, category: c };
+                if (m) newItem.memo = m;
+                db.push(newItem);
             }
             
             db.sort((a,b) => new Date(b.date) - new Date(a.date));
@@ -320,9 +375,10 @@
             }
             let si=0, so=0, h='', last='';
             const filtered = db.filter(i => {
-                const d = new Date(i.date);
-                if(mode==='day') return d.toDateString() === focus.toDateString();
-                return d.getFullYear() === focus.getFullYear() && d.getMonth() === focus.getMonth();
+                const parts = i.date.split('-');
+                const iy = parseInt(parts[0], 10), im = parseInt(parts[1], 10) - 1, id = parseInt(parts[2], 10);
+                if(mode==='day') return iy === focus.getFullYear() && im === focus.getMonth() && id === focus.getDate();
+                return iy === focus.getFullYear() && im === focus.getMonth();
             });
             filtered.forEach(i => {
                 i.category === '収入' ? si+=i.amount : so+=i.amount;
@@ -330,9 +386,10 @@
                 
                 h += `
                 <div class="history-item flex justify-between items-center">
-                    <div>
+                    <div style="flex:1; padding-right:8px;">
                         <small style="color:#666">${i.category}</small>
                         <div>${i.title}</div>
+                        ${i.memo ? `<div class="memo-text">💬 ${i.memo}</div>` : ''}
                     </div>
                     <div class="flex items-center gap-2">
                         <b class="${i.category==='収入'?'income':'expense'}">¥${i.amount.toLocaleString()}</b>
@@ -362,6 +419,7 @@
                 }
             } else {
                 const years = [...new Set(db.map(i => i.date.substring(0,4)))].sort();
+                if (years.length === 0) years.push(now.getFullYear().toString());
                 years.forEach(y => periods.push(y));
             }
 
@@ -408,7 +466,7 @@
                     if(d.expensesByCat[cat]) {
                         const hOut = (d.expensesByCat[cat] / maxVal) * 120;
                         currentY -= hOut;
-                        tsSvg += `<rect x="${x+step*0.4}" y="${currentY}" width="${step*0.35}" height="${hOut}" fill="${catColors[cat]}" stroke="var(--card)" stroke-width="0.8" opacity="0.95" />`;
+                        tsSvg += `<rect x="${x+step*0.4}" y="${currentY}" width="${step*0.35}" height="${hOut}" fill="${catColors[cat] || '#888'}" stroke="var(--card)" stroke-width="0.8" opacity="0.95" />`;
                     }
                 });
                 tsSvg += `<text x="${x}" y="155" class="axis-label" style="font-size:7px">${d.label}</text>`;
@@ -457,90 +515,183 @@
         function openJump() {
             const m = document.getElementById('modal'), b = document.getElementById('m-body');
             document.getElementById('m-title').innerText = "年を選択";
-            b.innerHTML = [2024,2025,2026,2027].map(y => `<div class="card" onclick="jumpToYear(${y})">${y}年</div>`).join('');
+            b.style.gridTemplateColumns = 'repeat(3, 1fr)';
+
+            const currentYear = new Date().getFullYear();
+            const dbYears = db.map(i => parseInt(i.date.substring(0, 4), 10)).filter(y => !isNaN(y));
+            const minYear = Math.min(...dbYears, currentYear - 2, focus.getFullYear());
+            const maxYear = Math.max(...dbYears, currentYear + 1, focus.getFullYear());
+
+            const years = [];
+            for (let y = minYear; y <= maxYear; y++) {
+                years.push(y);
+            }
+
+            b.innerHTML = years.map(y => {
+                const isActive = y === focus.getFullYear();
+                const style = isActive ? 'border-color:var(--blue); color:var(--blue); font-weight:bold; text-align:center; padding:12px 6px;' : 'text-align:center; padding:12px 6px;';
+                return `<div class="card" style="${style}" onclick="jumpToYear(${y})">${y}年</div>`;
+            }).join('');
             m.style.display = 'flex';
         }
         function jumpToYear(y) { focus.setFullYear(y); render(); document.getElementById('modal').style.display='none'; }
 
-		let exportFormat = 'json';
+        let exportFormat = 'json';
 
-		function openExportModal(format) {
-		    exportFormat = format;
-		    const m = document.getElementById('modal');
-		    const b = document.getElementById('m-body');
-		    document.getElementById('m-title').innerText = `${format.toUpperCase()} 出力期間を選択`;
+        function openExportModal(format) {
+            exportFormat = format;
+            const m = document.getElementById('modal');
+            const b = document.getElementById('m-body');
+            document.getElementById('m-title').innerText = `${format.toUpperCase()} 出力期間を選択`;
     
-		    b.style.gridTemplateColumns = 'repeat(2, 1fr)';
-		    b.innerHTML = `
-		        <button class="card" onclick="runExport('all')" style="padding:15px; text-align:center;">全期間</button>
-		        <button class="card" onclick="runExport('year')" style="padding:15px; text-align:center;">今年</button>
-		        <button class="card" onclick="runExport('3months')" style="padding:15px; text-align:center;">直近3ヶ月</button>
-		        <button class="card" onclick="runExport('month')" style="padding:15px; text-align:center;">今月</button>
-		    `;
-		    m.style.display = 'flex';
-		}
-
-		function runExport(rangeType) {
-		    const now = new Date();
-		    let filteredDb = [];
-		    let filenameSuffix = "";
-
-		    if (rangeType === 'all') {
-		        filteredDb = [...db];
-		        filenameSuffix = "all";
-		    } else if (rangeType === 'year') {
-		        const thisYear = now.getFullYear().toString();
-		        filteredDb = db.filter(i => i.date.startsWith(thisYear));
-		        filenameSuffix = `${thisYear}`;
-		    } else if (rangeType === '3months') {
-		        // 当月を含む直近3ヶ月（90日前以降）
-		        const cutoff = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-		        const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-01`;
-		        filteredDb = db.filter(i => i.date >= cutoffStr);
-		        filenameSuffix = "recent_3months";
-		    } else if (rangeType === 'month') {
-		        const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-		        filteredDb = db.filter(i => i.date.startsWith(thisMonth));
-		        filenameSuffix = thisMonth;
-		    }
-
-		    if (exportFormat === 'json') {
-		        // 今後のPC用アプリで読み込みやすいよう構造化
-		        const payload = {
-		            exportedAt: new Date().toISOString(),
-		            range: rangeType,
-		            cats: cats,
-		            db: filteredDb
-		        };
-		        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-		        const a = document.createElement('a');
-		        a.href = URL.createObjectURL(blob);
-		        a.download = `GemMoney_${filenameSuffix}.json`;
-		        a.click();
-		    } else {
-		        let csv = "\uFEFF日付,カテゴリ,項目,金額\n" + filteredDb.map(r => `${r.date},${r.category},${r.title},${r.amount}`).join("\n");
-		        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-		        const a = document.createElement('a');
-		        a.href = URL.createObjectURL(blob);
-		        a.download = `GemMoney_${filenameSuffix}.csv`;
-		        a.click();
-		    }
-
-		    document.getElementById('modal').style.display = 'none';
-		}
-        function importJSON(e) {
-            const r = new FileReader(); r.onload=(ev)=>{
-                const d = JSON.parse(ev.target.result);
-                if(d.db) { db=d.db; cats=d.cats||cats; save(); location.reload(); }
-            }; r.readAsText(e.target.files[0]);
+            b.style.gridTemplateColumns = 'repeat(2, 1fr)';
+            b.innerHTML = `
+                <button class="card" onclick="runExport('all')" style="padding:15px; text-align:center;">全期間</button>
+                <button class="card" onclick="runExport('year')" style="padding:15px; text-align:center;">今年</button>
+                <button class="card" onclick="runExport('3months')" style="padding:15px; text-align:center;">直近3ヶ月</button>
+                <button class="card" onclick="runExport('month')" style="padding:15px; text-align:center;">今月</button>
+            `;
+            m.style.display = 'flex';
         }
+
+        function runExport(rangeType) {
+            const now = new Date();
+            let filteredDb = [];
+            let filenameSuffix = "";
+
+            if (rangeType === 'all') {
+                filteredDb = [...db];
+                filenameSuffix = "all";
+            } else if (rangeType === 'year') {
+                const thisYear = now.getFullYear().toString();
+                filteredDb = db.filter(i => i.date.startsWith(thisYear));
+                filenameSuffix = `${thisYear}`;
+            } else if (rangeType === '3months') {
+                const cutoff = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+                const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-01`;
+                filteredDb = db.filter(i => i.date >= cutoffStr);
+                filenameSuffix = "recent_3months";
+            } else if (rangeType === 'month') {
+                const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                filteredDb = db.filter(i => i.date.startsWith(thisMonth));
+                filenameSuffix = thisMonth;
+            }
+
+            if (exportFormat === 'json') {
+                const payload = {
+                    exportedAt: new Date().toISOString(),
+                    range: rangeType,
+                    cats: cats,
+                    db: filteredDb
+                };
+                const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `GemMoney_${filenameSuffix}.json`;
+                a.click();
+            } else {
+                let csv = "\uFEFF日付,カテゴリ,項目,金額,メモ\n" + filteredDb.map(r => `${r.date},"${(r.category||'').replace(/"/g,'""')}","${(r.title||'').replace(/"/g,'""')}",${r.amount},"${(r.memo||'').replace(/"/g,'""')}"`).join("\n");
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `GemMoney_${filenameSuffix}.csv`;
+                a.click();
+            }
+
+            document.getElementById('modal').style.display = 'none';
+        }
+
+        function importJSON(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const r = new FileReader();
+            r.onload = (ev) => {
+                try {
+                    const d = JSON.parse(ev.target.result);
+                    if (d.db && Array.isArray(d.db)) {
+                        pendingImportData = d;
+                        openImportModal(d.db.length);
+                    } else {
+                        alert("対応するデータ形式ではありません。");
+                    }
+                } catch (err) {
+                    alert("JSONファイルの読み込みに失敗しました。");
+                }
+                e.target.value = '';
+            };
+            r.readAsText(file);
+        }
+
+        function openImportModal(count) {
+            const m = document.getElementById('modal');
+            const b = document.getElementById('m-body');
+            document.getElementById('m-title').innerText = `JSON読込 (${count}件)`;
+            b.style.gridTemplateColumns = '1fr';
+            b.innerHTML = `
+                <button class="card" onclick="executeImport('merge')" style="padding:14px; text-align:left; border-color:var(--blue);">
+                    <div style="color:var(--blue); font-size:15px; margin-bottom:4px;">🔄 既存データと統合（マージ）</div>
+                    <div style="font-size:11px; color:#aaa; font-weight:normal;">同じIDの記録は最新の内容で更新し、新規記録を追加します（推奨）</div>
+                </button>
+                <button class="card" onclick="executeImport('overwrite')" style="padding:14px; text-align:left;">
+                    <div style="color:var(--red); font-size:15px; margin-bottom:4px;">⚠️ 完全に上書き（置換）</div>
+                    <div style="font-size:11px; color:#aaa; font-weight:normal;">現在のスマホ内のデータをすべて消去し、ファイルの内容に置き換えます</div>
+                </button>
+            `;
+            m.style.display = 'flex';
+        }
+
+        function executeImport(type) {
+            if (!pendingImportData) return;
+            const d = pendingImportData;
+            pendingImportData = null;
+            document.getElementById('modal').style.display = 'none';
+
+            if (type === 'overwrite') {
+                if (!confirm("本当に現在のデータをすべて消去して上書きしますか？")) return;
+                db = d.db;
+                if (d.cats && Array.isArray(d.cats)) {
+                    cats = [...new Set([...d.cats, '収入'])];
+                }
+                db.sort((a, b) => new Date(b.date) - new Date(a.date));
+                save();
+                renderCats();
+                render();
+                alert(`${db.length}件のデータを上書きしました。`);
+            } else {
+                const existingMap = new Map(db.map(i => [i.id, i]));
+                let added = 0, updated = 0;
+                d.db.forEach(item => {
+                    if (existingMap.has(item.id)) {
+                        Object.assign(existingMap.get(item.id), item);
+                        updated++;
+                    } else {
+                        db.push(item);
+                        existingMap.set(item.id, item);
+                        added++;
+                    }
+                });
+                if (d.cats && Array.isArray(d.cats)) {
+                    cats = [...new Set([...cats, ...d.cats, '収入'])];
+                }
+                db.sort((a, b) => new Date(b.date) - new Date(a.date));
+                save();
+                renderCats();
+                render();
+                alert(`統合完了：新規 ${added}件 追加 / ${updated}件 更新`);
+            }
+        }
+
         function manageCats() {
             const n = prompt("カテゴリ(,区切り)", cats.join(","));
-            if(n) { cats=n.split(",").map(s=>s.trim()); save(); renderCats(); render(); }
+            if(n) {
+                cats = n.split(",").map(s=>s.trim()).filter(s=>s);
+                if (!cats.includes("収入")) cats.push("収入");
+                save(); renderCats(); render();
+            }
         }
         init();
 
-		if ('serviceWorker' in navigator) {
+        if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {
                 navigator.serviceWorker.register('sw.js').then(function(registration) {
                     console.log('ServiceWorker登録成功:', registration.scope);

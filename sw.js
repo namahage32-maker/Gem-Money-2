@@ -1,17 +1,33 @@
-const CACHE_NAME = 'gemmoney-cache-v1';
+const CACHE_NAME = 'gemmoney-cache-v2'; // ←ここをv2に変更
 const urlsToCache = [
-  './index.html', // お手元のHTMLファイル名に合わせる
+  './index.html',
   './manifest.json',
   './icon.png'
 ];
 
-// インストール時にファイルをキャッシュに保存
+// インストール時にファイルをキャッシュに保存＆即時有効化
 self.addEventListener('install', function(event) {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(function(cache) {
         return cache.addAll(urlsToCache);
       })
+  );
+});
+
+// 古いバージョンのキャッシュを自動削除
+self.addEventListener('activate', function(event) {
+  event.waitUntil(
+    caches.keys().then(function(cacheNames) {
+      return Promise.all(
+        cacheNames.map(function(cacheName) {
+          if (cacheName !== CACHE_NAME) {
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    })
   );
 });
 
@@ -21,9 +37,9 @@ self.addEventListener('fetch', function(event) {
     caches.match(event.request)
       .then(function(response) {
         if (response) {
-          return response; // キャッシュがあればそれを返す（完全オフライン動作）
+          return response;
         }
-        return fetch(event.request); // なければネットワークを取りに行く
+        return fetch(event.request);
       })
   );
 });
