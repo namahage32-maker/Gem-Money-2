@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GemMoney2 v2</title>
+    <title>GemMoney2 v3</title>
 
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#121212">
@@ -14,7 +14,7 @@
             --bg: #121212; --card: #1e1e1e; --text: #e5e5e5;
             --blue: #4dabf7; --red: #ff6b6b; --yellow: #fcc419; --gray: #444;
         }
-        body { background: var(--bg); color: var(--text); font-family: sans-serif; margin: 0; padding: 15px; padding-bottom: 80px; overflow-x: hidden; }
+        body { background: var(--bg); color: var(--text); font-family: sans-serif; margin: 0; padding: 15px; padding-bottom: 85px; overflow-x: hidden; }
         .flex { display: flex; } .justify-between { justify-content: space-between; } .items-center { align-items: center; }
         .gap-1 { gap: 4px; } .gap-2 { gap: 8px; }
         .mb-2 { margin-bottom: 8px; } .mb-4 { margin-bottom: 16px; }
@@ -37,7 +37,7 @@
         
         .history-item { border-bottom: 1px solid #222; padding: 10px 0; font-size: 14px; }
         .memo-text { font-size: 11px; color: #888; margin-top: 3px; }
-        footer { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg); border-top: 1px solid #333; padding: 12px; display: flex; justify-content: space-between; font-size: 10px; z-index: 50; }
+        footer { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg); border-top: 1px solid #333; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; font-size: 10px; z-index: 50; }
         #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 100; align-items: center; justify-content: center; }
 
         .numpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
@@ -57,12 +57,13 @@
         .suggest-cat { font-size: 11px; color: var(--blue); margin-left: 8px; border: 1px solid var(--blue); padding: 2px 4px; border-radius: 4px; }
         
         .memo-btn-active { border: 1px solid var(--blue) !important; color: var(--blue) !important; }
+        .export-row { display: flex; flex-direction: column; gap: 6px; background: #161616; padding: 10px; border-radius: 8px; border: 1px solid #2a2a2a; }
     </style>
 </head>
 <body>
 
     <div class="flex justify-between items-center mb-4">
-        <h2>GemMoney2 v2</h2>
+        <h2>GemMoney2 v3</h2>
         <div class="flex">
             <button onclick="setView('day')" id="t-day" class="tab-btn">一日</button>
             <button onclick="setView('month')" id="t-month" class="tab-btn tab-active">月別</button>
@@ -150,16 +151,17 @@
     </div>
 
     <footer>
-        <div class="flex gap-2">
-            <button onclick="openExportModal('csv')" class="btn-gray">CSV</button>
-            <button onclick="openExportModal('json')" class="btn-gray">JSON</button>
-            <label class="btn-gray" style="padding:8px">Import<input type="file" accept=".json" style="display:none" onchange="importJSON(event)"></label>
+        <div class="flex gap-1 items-center">
+            <button onclick="quickShareAll()" class="btn-blue" style="padding:8px 10px; font-size:12px;">📤 共有</button>
+            <button onclick="openExportModal('json')" class="btn-gray" style="padding:8px 10px; font-size:12px;">JSON</button>
+            <button onclick="openExportModal('csv')" class="btn-gray" style="padding:8px 10px; font-size:12px;">CSV</button>
+            <label class="btn-gray" style="padding:8px 10px; font-size:12px; border-radius:6px; font-weight:bold; cursor:pointer;">取込<input type="file" accept=".json" style="display:none" onchange="importJSON(event)"></label>
         </div>
-        <button onclick="manageCats()" style="color:#666">Edit Cats</button>
+        <button onclick="manageCats()" style="color:#777; font-size:11px; padding:6px;">カテゴリ編集</button>
     </footer>
 
     <div id="modal" onclick="this.style.display='none'">
-        <div class="card" style="width:85%; max-width:360px; max-height:75%; overflow:auto" onclick="event.stopPropagation()">
+        <div class="card" style="width:88%; max-width:360px; max-height:80%; overflow:auto" onclick="event.stopPropagation()">
             <div id="m-title" style="text-align:center; padding:10px; border-bottom:1px solid #333; font-weight:bold"></div>
             <div id="m-body" class="grid grid-3" style="padding:15px"></div>
         </div>
@@ -173,6 +175,11 @@
         let currentAmt = "";
         let editId = null; 
         let pendingImportData = null;
+
+        // 論理削除されていない有効なデータのみを取得するヘルパー
+        function getActiveDb() {
+            return db.filter(i => !i.deleted);
+        }
 
         function save() {
             localStorage.setItem('gem_db', JSON.stringify(db));
@@ -242,8 +249,9 @@
             if (!val) { box.style.display = 'none'; return; }
             const matches = [];
             const seen = new Set();
-            for (let i = 0; i < db.length; i++) {
-                const item = db[i];
+            const activeList = getActiveDb();
+            for (let i = 0; i < activeList.length; i++) {
+                const item = activeList[i];
                 if (item.title && item.title.includes(val) && !seen.has(item.title)) {
                     seen.add(item.title);
                     matches.push({ title: item.title, category: item.category });
@@ -280,7 +288,7 @@
         }
 
         function edit(id) {
-            const item = db.find(i => i.id === id);
+            const item = db.find(i => i.id === id && !i.deleted);
             if (!item) return;
             
             editId = id; 
@@ -350,12 +358,13 @@
             if (editId) {
                 const index = db.findIndex(i => i.id === editId);
                 if (index !== -1) {
-                    const updated = { ...db[index], date: d, title: t, amount: a, category: c };
+                    const updated = { ...db[index], date: d, title: t, amount: a, category: c, updatedAt: Date.now() };
+                    delete updated.deleted;
                     if (m) updated.memo = m; else delete updated.memo;
                     db[index] = updated;
                 }
             } else {
-                const newItem = { id: Date.now(), date: d, title: t, amount: a, category: c };
+                const newItem = { id: Date.now(), date: d, title: t, amount: a, category: c, updatedAt: Date.now() };
                 if (m) newItem.memo = m;
                 db.push(newItem);
             }
@@ -374,7 +383,7 @@
                 document.getElementById('in-date').value = `${y}-${m}-${d}`;
             }
             let si=0, so=0, h='', last='';
-            const filtered = db.filter(i => {
+            const filtered = getActiveDb().filter(i => {
                 const parts = i.date.split('-');
                 const iy = parseInt(parts[0], 10), im = parseInt(parts[1], 10) - 1, id = parseInt(parts[2], 10);
                 if(mode==='day') return iy === focus.getFullYear() && im === focus.getMonth() && id === focus.getDate();
@@ -406,9 +415,22 @@
             document.getElementById('sum-bal').innerText = (si-so).toLocaleString();
         }
 
-        function del(id) { if(confirm('削除しますか？')) { db=db.filter(i=>i.id!==id); save(); render(); } }
+        // ① 論理削除（deletedフラグを立てて同期可能にする）
+        function del(id) {
+            if(confirm('削除しますか？')) {
+                const idx = db.findIndex(i => i.id === id);
+                if (idx !== -1) {
+                    db[idx].deleted = true;
+                    db[idx].updatedAt = Date.now();
+                    if (editId === id) cancelEdit();
+                    save();
+                    render();
+                }
+            }
+        }
 
         function drawStats() {
+            const activeList = getActiveDb();
             const unit = document.getElementById('stat-unit').value;
             const periods = [];
             const now = new Date();
@@ -418,7 +440,7 @@
                     periods.push(`${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}`);
                 }
             } else {
-                const years = [...new Set(db.map(i => i.date.substring(0,4)))].sort();
+                const years = [...new Set(activeList.map(i => i.date.substring(0,4)))].sort();
                 if (years.length === 0) years.push(now.getFullYear().toString());
                 years.forEach(y => periods.push(y));
             }
@@ -429,7 +451,7 @@
             expCats.forEach((c, i) => { catColors[c] = colorPalette[i % colorPalette.length]; });
 
             const data = periods.map(p => {
-                const items = db.filter(i => i.date.startsWith(p));
+                const items = activeList.filter(i => i.date.startsWith(p));
                 let income = 0, expense = 0;
                 const expensesByCat = {};
                 items.forEach(i => {
@@ -485,7 +507,7 @@
             const catCont = document.getElementById('chart-cat');
             const targetCat = document.getElementById('stat-cat').value;
             const targetColor = targetCat === '収入' ? 'var(--blue)' : (catColors[targetCat] || 'var(--blue)');
-            const catData = periods.map(p => db.filter(i => i.date.startsWith(p) && i.category === targetCat).reduce((s,i)=>s+i.amount,0));
+            const catData = periods.map(p => activeList.filter(i => i.date.startsWith(p) && i.category === targetCat).reduce((s,i)=>s+i.amount,0));
             const catMaxRaw = Math.max(...catData, 5000);
             const catPower = Math.pow(10, Math.floor(Math.log10(catMaxRaw)));
             const catMax = Math.ceil(catMaxRaw / catPower) * catPower;
@@ -518,7 +540,7 @@
             b.style.gridTemplateColumns = 'repeat(3, 1fr)';
 
             const currentYear = new Date().getFullYear();
-            const dbYears = db.map(i => parseInt(i.date.substring(0, 4), 10)).filter(y => !isNaN(y));
+            const dbYears = getActiveDb().map(i => parseInt(i.date.substring(0, 4), 10)).filter(y => !isNaN(y));
             const minYear = Math.min(...dbYears, currentYear - 2, focus.getFullYear());
             const maxYear = Math.max(...dbYears, currentYear + 1, focus.getFullYear());
 
@@ -536,69 +558,122 @@
         }
         function jumpToYear(y) { focus.setFullYear(y); render(); document.getElementById('modal').style.display='none'; }
 
+        /* --- ② ワンタップ共有 & エクスポート --- */
         let exportFormat = 'json';
+
+        // フッターの「📤 共有」ボタンから全期間JSONをワンタップ共有
+        function quickShareAll() {
+            runExport('all', 'share', 'json');
+        }
 
         function openExportModal(format) {
             exportFormat = format;
             const m = document.getElementById('modal');
             const b = document.getElementById('m-body');
-            document.getElementById('m-title').innerText = `${format.toUpperCase()} 出力期間を選択`;
+            document.getElementById('m-title').innerText = `${format.toUpperCase()} 出力・共有`;
     
-            b.style.gridTemplateColumns = 'repeat(2, 1fr)';
-            b.innerHTML = `
-                <button class="card" onclick="runExport('all')" style="padding:15px; text-align:center;">全期間</button>
-                <button class="card" onclick="runExport('year')" style="padding:15px; text-align:center;">今年</button>
-                <button class="card" onclick="runExport('3months')" style="padding:15px; text-align:center;">直近3ヶ月</button>
-                <button class="card" onclick="runExport('month')" style="padding:15px; text-align:center;">今月</button>
-            `;
+            b.style.gridTemplateColumns = '1fr';
+            const ranges = [
+                { key: 'all', label: '全期間（推奨）' },
+                { key: 'year', label: '今年のみ' },
+                { key: '3months', label: '直近3ヶ月' },
+                { key: 'month', label: '今月のみ' }
+            ];
+
+            b.innerHTML = ranges.map(r => `
+                <div class="export-row">
+                    <div style="font-size:13px; font-weight:bold; color:var(--text);">${r.label}</div>
+                    <div class="flex gap-2">
+                        <button class="btn-blue" onclick="runExport('${r.key}', 'share')" style="flex:1; padding:10px;">📤 ワンタップ共有</button>
+                        <button class="btn-gray" onclick="runExport('${r.key}', 'download')" style="flex:1; padding:10px; color:#fff;">💾 ファイル保存</button>
+                    </div>
+                </div>
+            `).join('');
             m.style.display = 'flex';
         }
 
-        function runExport(rangeType) {
+        async function runExport(rangeType, action = 'download', overrideFormat = null) {
+            const fmt = overrideFormat || exportFormat;
             const now = new Date();
+            // JSON出力時は論理削除(deleted:true)も含めて出力し、PC側と削除同期できるようにする
+            // CSV出力時は有効なデータのみ出力する
+            const sourceList = (fmt === 'json') ? db : getActiveDb();
             let filteredDb = [];
             let filenameSuffix = "";
 
             if (rangeType === 'all') {
-                filteredDb = [...db];
+                filteredDb = [...sourceList];
                 filenameSuffix = "all";
             } else if (rangeType === 'year') {
                 const thisYear = now.getFullYear().toString();
-                filteredDb = db.filter(i => i.date.startsWith(thisYear));
+                filteredDb = sourceList.filter(i => i.date && i.date.startsWith(thisYear));
                 filenameSuffix = `${thisYear}`;
             } else if (rangeType === '3months') {
                 const cutoff = new Date(now.getFullYear(), now.getMonth() - 2, 1);
                 const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-01`;
-                filteredDb = db.filter(i => i.date >= cutoffStr);
+                filteredDb = sourceList.filter(i => i.date && i.date >= cutoffStr);
                 filenameSuffix = "recent_3months";
             } else if (rangeType === 'month') {
                 const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-                filteredDb = db.filter(i => i.date.startsWith(thisMonth));
+                filteredDb = sourceList.filter(i => i.date && i.date.startsWith(thisMonth));
                 filenameSuffix = thisMonth;
             }
 
-            if (exportFormat === 'json') {
+            let blob, filename, mimeType;
+
+            if (fmt === 'json') {
                 const payload = {
                     exportedAt: new Date().toISOString(),
                     range: rangeType,
                     cats: cats,
                     db: filteredDb
                 };
-                const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = `GemMoney_${filenameSuffix}.json`;
-                a.click();
+                mimeType = 'application/json';
+                blob = new Blob([JSON.stringify(payload, null, 2)], { type: mimeType });
+                filename = `GemMoney_${filenameSuffix}.json`;
             } else {
                 let csv = "\uFEFF日付,カテゴリ,項目,金額,メモ\n" + filteredDb.map(r => `${r.date},"${(r.category||'').replace(/"/g,'""')}","${(r.title||'').replace(/"/g,'""')}",${r.amount},"${(r.memo||'').replace(/"/g,'""')}"`).join("\n");
-                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = `GemMoney_${filenameSuffix}.csv`;
-                a.click();
+                mimeType = 'text/csv;charset=utf-8;';
+                blob = new Blob([csv], { type: mimeType });
+                filename = `GemMoney_${filenameSuffix}.csv`;
             }
 
             document.getElementById('modal').style.display = 'none';
+
+            // Web Share API によるワンタップ共有
+            if (action === 'share') {
+                const file = new File([blob], filename, { type: mimeType });
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    try {
+                        await navigator.share({
+                            title: 'GemMoney データ共有',
+                            files: [file]
+                        });
+                        return;
+                    } catch (err) {
+                        if (err.name === 'AbortError') return; // ユーザーキャンセル時は何もしない
+                    }
+                } else if (navigator.share) {
+                    try {
+                        const fileFallback = new File([blob], filename, { type: 'text/plain' });
+                        if (navigator.canShare && navigator.canShare({ files: [fileFallback] })) {
+                            await navigator.share({
+                                title: 'GemMoney データ共有',
+                                files: [fileFallback]
+                            });
+                            return;
+                        }
+                    } catch (err) {
+                        if (err.name === 'AbortError') return;
+                    }
+                }
+                // Web Share 非対応ブラウザの場合は通常のファイル保存へフォールバック
+            }
+
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            a.click();
         }
 
         function importJSON(e) {
@@ -610,7 +685,7 @@
                     const d = JSON.parse(ev.target.result);
                     if (d.db && Array.isArray(d.db)) {
                         pendingImportData = d;
-                        openImportModal(d.db.length);
+                        openImportModal(d.db.filter(i => !i.deleted).length);
                     } else {
                         alert("対応するデータ形式ではありません。");
                     }
@@ -625,12 +700,12 @@
         function openImportModal(count) {
             const m = document.getElementById('modal');
             const b = document.getElementById('m-body');
-            document.getElementById('m-title').innerText = `JSON読込 (${count}件)`;
+            document.getElementById('m-title').innerText = `JSON読込 (有効データ ${count}件)`;
             b.style.gridTemplateColumns = '1fr';
             b.innerHTML = `
                 <button class="card" onclick="executeImport('merge')" style="padding:14px; text-align:left; border-color:var(--blue);">
                     <div style="color:var(--blue); font-size:15px; margin-bottom:4px;">🔄 既存データと統合（マージ）</div>
-                    <div style="font-size:11px; color:#aaa; font-weight:normal;">同じIDの記録は最新の内容で更新し、新規記録を追加します（推奨）</div>
+                    <div style="font-size:11px; color:#aaa; font-weight:normal;">追加・編集・削除（論理削除）を判定して最新の状態に統合します（推奨）</div>
                 </button>
                 <button class="card" onclick="executeImport('overwrite')" style="padding:14px; text-align:left;">
                     <div style="color:var(--red); font-size:15px; margin-bottom:4px;">⚠️ 完全に上書き（置換）</div>
@@ -656,20 +731,43 @@
                 save();
                 renderCats();
                 render();
-                alert(`${db.length}件のデータを上書きしました。`);
+                alert(`${getActiveDb().length}件のデータを上書きしました。`);
             } else {
                 const existingMap = new Map(db.map(i => [i.id, i]));
-                let added = 0, updated = 0;
+                let added = 0, updated = 0, deletedSync = 0;
+
                 d.db.forEach(item => {
                     if (existingMap.has(item.id)) {
-                        Object.assign(existingMap.get(item.id), item);
-                        updated++;
+                        const existing = existingMap.get(item.id);
+                        const inTime = item.updatedAt || 0;
+                        const exTime = existing.updatedAt || 0;
+
+                        // 削除フラグの同期と更新日時の比較
+                        if (item.deleted && !existing.deleted) {
+                            if (inTime >= exTime || exTime === 0) {
+                                existing.deleted = true;
+                                existing.updatedAt = Math.max(inTime, exTime, Date.now());
+                                deletedSync++;
+                            }
+                        } else if (!item.deleted && existing.deleted) {
+                            if (inTime > exTime) {
+                                Object.assign(existing, item);
+                                delete existing.deleted;
+                                updated++;
+                            }
+                        } else if (!item.deleted && !existing.deleted) {
+                            if (inTime >= exTime) {
+                                Object.assign(existing, item);
+                                updated++;
+                            }
+                        }
                     } else {
                         db.push(item);
                         existingMap.set(item.id, item);
-                        added++;
+                        if (!item.deleted) added++;
                     }
                 });
+
                 if (d.cats && Array.isArray(d.cats)) {
                     cats = [...new Set([...cats, ...d.cats, '収入'])];
                 }
@@ -677,7 +775,7 @@
                 save();
                 renderCats();
                 render();
-                alert(`統合完了：新規 ${added}件 追加 / ${updated}件 更新`);
+                alert(`統合完了：新規 ${added}件 追加 / ${updated}件 更新 / ${deletedSync}件 削除反映`);
             }
         }
 
