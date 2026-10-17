@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GemMoney2 v4</title>
+    <title>GemMoney2 v5</title>
 
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#121212">
@@ -68,7 +68,7 @@
     <div id="toast" class="toast-notice"></div>
 
     <div class="flex justify-between items-center mb-4">
-        <h2>GemMoney2 v4</h2>
+        <h2>GemMoney2 v5</h2>
         <div class="flex">
             <button onclick="setView('day')" id="t-day" class="tab-btn">一日</button>
             <button onclick="setView('month')" id="t-month" class="tab-btn tab-active">月別</button>
@@ -210,6 +210,12 @@
             setTimeout(() => { t.style.display = 'none'; }, 3500);
         }
 
+        // 定期項目から生成する明細の確定ID（桁あふれしない安全な13〜14桁整数）
+        function makeSubEntryId(subId, year, month) {
+            const baseSubId = subId > 10000000000 ? (subId % 1000000000) : subId;
+            return (baseSubId * 10000) + ((year % 100) * 100) + month;
+        }
+
         function init() {
             document.getElementById('in-date').valueAsDate = new Date();
             const addedCount = processSubscriptions();
@@ -220,14 +226,29 @@
             }
         }
 
-        /* --- 定期支出の起動時遡及チェック＆自動登録 --- */
+        /* --- 定期支出の起動時遡及チェック＆自動登録（桁あふれ修正＆自動修復つき） --- */
         function processSubscriptions() {
+            let modified = false;
+
+            // 先ほどのバグで桁あふれ（MAX_SAFE_INTEGER超え）した不完全な自動生成データを自動除去
+            const beforeLen = db.length;
+            db = db.filter(i => !(i.subId && i.id > 9000000000000000));
+            if (db.length !== beforeLen) modified = true;
+
             const now = new Date();
             const curY = now.getFullYear();
             const curM = now.getMonth() + 1;
             const curD = now.getDate();
 
             const existingIds = new Set(db.map(i => i.id));
+            // 「どの定期ルール(subId)の、何年何月(YYYY-MM)が既に存在するか」でも確実に重複チェック
+            const existingSubMonths = new Set();
+            db.forEach(i => {
+                if (i.subId && i.date) {
+                    existingSubMonths.add(`${i.subId}_${i.date.substring(0, 7)}`);
+                }
+            });
+
             let addedCount = 0;
 
             subs.forEach(sub => {
@@ -250,13 +271,13 @@
                         break;
                     }
 
-                    // 確定的ID: sub.id * 10000 + YYYYMM (PC側と重複しない数値ID)
-                    const ymNum = (y % 100) * 100 + m;
-                    const entryId = (sub.id * 10000) + ymNum;
+                    const ymStr = `${y}-${String(m).padStart(2, '0')}`;
+                    const subMonthKey = `${sub.id}_${ymStr}`;
+                    const entryId = makeSubEntryId(sub.id, y, m);
 
-                    // 既に登録済み（削除済み含む）でなければ自動追加
-                    if (!existingIds.has(entryId)) {
-                        const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`;
+                    // 既にその月の定期明細が存在しない場合のみ追加
+                    if (!existingSubMonths.has(subMonthKey) && !existingIds.has(entryId)) {
+                        const dateStr = `${ymStr}-${String(targetDay).padStart(2, '0')}`;
                         const newItem = {
                             id: entryId,
                             subId: sub.id,
@@ -269,7 +290,9 @@
                         if (sub.memo) newItem.memo = sub.memo;
                         db.push(newItem);
                         existingIds.add(entryId);
+                        existingSubMonths.add(subMonthKey);
                         addedCount++;
+                        modified = true;
                     }
 
                     m++;
@@ -280,7 +303,7 @@
                 }
             });
 
-            if (addedCount > 0) {
+            if (modified) {
                 db.sort((a, b) => new Date(b.date) - new Date(a.date));
                 save();
             }
@@ -536,7 +559,6 @@
             const c = document.getElementById('in-cat').value;
 
             const dayVal = d ? Math.min(parseInt(d.split('-')[2], 10), 28).toString() : '1';
-            // 編集中の明細から定期化する場合は「来月から開始」を初期値にして二重登録を防ぐ
             const now = new Date();
             const nextM = new Date(now.getFullYear(), now.getMonth() + 1, 1);
             const defaultStart = editId ? getYearMonthStr(nextM) : getYearMonthStr(now);
@@ -678,8 +700,10 @@
                     if (memo) subs[idx].memo = memo; else delete subs[idx].memo;
                 }
             } else {
+                // 桁あふれを防ぐ8〜9桁のユニークID
+                const compactId = Math.floor((Date.now() - 1700000000000) / 100) + Math.floor(Math.random() * 100);
                 const newSub = {
-                    id: Date.now(),
+                    id: compactId,
                     title, amount, category, day, startMonth,
                     active: true,
                     updatedAt: Date.now()
@@ -1057,7 +1081,6 @@
                     }
                 });
 
-                // 定期設定(subs)のマージ
                 if (d.subs && Array.isArray(d.subs)) {
                     const subMap = new Map(subs.map(s => [s.id, s]));
                     d.subs.forEach(inSub => {
