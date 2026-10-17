@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GemMoney2 v3</title>
+    <title>GemMoney2 v4</title>
 
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#121212">
@@ -12,7 +12,7 @@
     <style>
         :root {
             --bg: #121212; --card: #1e1e1e; --text: #e5e5e5;
-            --blue: #4dabf7; --red: #ff6b6b; --yellow: #fcc419; --gray: #444;
+            --blue: #4dabf7; --red: #ff6b6b; --yellow: #fcc419; --green: #51cf66; --gray: #444;
         }
         body { background: var(--bg); color: var(--text); font-family: sans-serif; margin: 0; padding: 15px; padding-bottom: 85px; overflow-x: hidden; }
         .flex { display: flex; } .justify-between { justify-content: space-between; } .items-center { align-items: center; }
@@ -37,7 +37,7 @@
         
         .history-item { border-bottom: 1px solid #222; padding: 10px 0; font-size: 14px; }
         .memo-text { font-size: 11px; color: #888; margin-top: 3px; }
-        footer { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg); border-top: 1px solid #333; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; font-size: 10px; z-index: 50; }
+        footer { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg); border-top: 1px solid #333; padding: 10px 10px; display: flex; justify-content: space-between; align-items: center; font-size: 10px; z-index: 50; }
         #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 100; align-items: center; justify-content: center; }
 
         .numpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
@@ -58,12 +58,17 @@
         
         .memo-btn-active { border: 1px solid var(--blue) !important; color: var(--blue) !important; }
         .export-row { display: flex; flex-direction: column; gap: 6px; background: #161616; padding: 10px; border-radius: 8px; border: 1px solid #2a2a2a; }
+        
+        .sub-badge { font-size: 10px; color: var(--blue); border: 1px solid var(--blue); border-radius: 4px; padding: 1px 4px; margin-left: 4px; }
+        .toast-notice { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); background: var(--blue); color: #fff; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: bold; z-index: 200; box-shadow: 0 4px 12px rgba(0,0,0,0.6); display: none; }
     </style>
 </head>
 <body>
 
+    <div id="toast" class="toast-notice"></div>
+
     <div class="flex justify-between items-center mb-4">
-        <h2>GemMoney2 v3</h2>
+        <h2>GemMoney2 v4</h2>
         <div class="flex">
             <button onclick="setView('day')" id="t-day" class="tab-btn">一日</button>
             <button onclick="setView('month')" id="t-month" class="tab-btn tab-active">月別</button>
@@ -123,6 +128,10 @@
                 <button onclick="num(0)">0</button>
                 <button onclick="num('BS')" style="color:var(--yellow)">⌫</button>
             </div>
+
+            <div style="margin-top:8px; text-align:right;">
+                <button type="button" onclick="registerSubFromInput()" style="background:none; color:#888; font-size:11px; padding:4px 2px;">🔄 入力中の内容を「定期登録」にも追加</button>
+            </div>
         </div>
         
         <div id="list"></div>
@@ -152,18 +161,21 @@
 
     <footer>
         <div class="flex gap-1 items-center">
-            <button onclick="quickShareAll()" class="btn-blue" style="padding:8px 10px; font-size:12px;">📤 共有</button>
-            <button onclick="openExportModal('json')" class="btn-gray" style="padding:8px 10px; font-size:12px;">JSON</button>
-            <button onclick="openExportModal('csv')" class="btn-gray" style="padding:8px 10px; font-size:12px;">CSV</button>
-            <label class="btn-gray" style="padding:8px 10px; font-size:12px; border-radius:6px; font-weight:bold; cursor:pointer;">取込<input type="file" accept=".json" style="display:none" onchange="importJSON(event)"></label>
+            <button onclick="quickShareAll()" class="btn-blue" style="padding:8px 8px; font-size:11px;">📤共有</button>
+            <button onclick="openExportModal('json')" class="btn-gray" style="padding:8px 8px; font-size:11px;">JSON</button>
+            <button onclick="openExportModal('csv')" class="btn-gray" style="padding:8px 8px; font-size:11px;">CSV</button>
+            <label class="btn-gray" style="padding:8px 8px; font-size:11px; border-radius:6px; font-weight:bold; cursor:pointer;">取込<input type="file" accept=".json" style="display:none" onchange="importJSON(event)"></label>
         </div>
-        <button onclick="manageCats()" style="color:#777; font-size:11px; padding:6px;">カテゴリ編集</button>
+        <div class="flex gap-1 items-center">
+            <button onclick="openSubsModal()" class="btn-gray" style="padding:8px 8px; font-size:11px; color:var(--blue); border:1px solid #333;">🔄定期</button>
+            <button onclick="manageCats()" style="color:#777; font-size:11px; padding:6px;">カテゴリ</button>
+        </div>
     </footer>
 
     <div id="modal" onclick="this.style.display='none'">
-        <div class="card" style="width:88%; max-width:360px; max-height:80%; overflow:auto" onclick="event.stopPropagation()">
+        <div class="card" style="width:92%; max-width:380px; max-height:85%; overflow:auto" onclick="event.stopPropagation()">
             <div id="m-title" style="text-align:center; padding:10px; border-bottom:1px solid #333; font-weight:bold"></div>
-            <div id="m-body" class="grid grid-3" style="padding:15px"></div>
+            <div id="m-body" class="grid grid-3" style="padding:12px"></div>
         </div>
     </div>
 
@@ -171,25 +183,108 @@
         const DEFAULT_CATS = ["食費", "車", "生活雑費", "育児", "税金", "ふるさと納税", "緊急支出", "保険", "遊興費", "業務費", "投資", "負債", "収入"];
         let db = JSON.parse(localStorage.getItem('gem_db')) || [];
         let cats = JSON.parse(localStorage.getItem('gem_cats')) || DEFAULT_CATS;
+        let subs = JSON.parse(localStorage.getItem('gem_subs')) || [];
         let mode = 'month', focus = new Date();
         let currentAmt = "";
         let editId = null; 
         let pendingImportData = null;
 
-        // 論理削除されていない有効なデータのみを取得するヘルパー
         function getActiveDb() {
             return db.filter(i => !i.deleted);
+        }
+
+        function getActiveSubs() {
+            return subs.filter(s => !s.deleted);
         }
 
         function save() {
             localStorage.setItem('gem_db', JSON.stringify(db));
             localStorage.setItem('gem_cats', JSON.stringify(cats));
+            localStorage.setItem('gem_subs', JSON.stringify(subs));
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.style.display = 'block';
+            setTimeout(() => { t.style.display = 'none'; }, 3500);
         }
 
         function init() {
             document.getElementById('in-date').valueAsDate = new Date();
+            const addedCount = processSubscriptions();
             renderCats();
             render();
+            if (addedCount > 0) {
+                showToast(`🔄 定期項目を ${addedCount}件 自動登録しました`);
+            }
+        }
+
+        /* --- 定期支出の起動時遡及チェック＆自動登録 --- */
+        function processSubscriptions() {
+            const now = new Date();
+            const curY = now.getFullYear();
+            const curM = now.getMonth() + 1;
+            const curD = now.getDate();
+
+            const existingIds = new Set(db.map(i => i.id));
+            let addedCount = 0;
+
+            subs.forEach(sub => {
+                if (sub.deleted || sub.active === false) return;
+                if (!sub.startMonth) return;
+
+                const parts = sub.startMonth.split('-');
+                let y = parseInt(parts[0], 10);
+                let m = parseInt(parts[1], 10);
+                if (isNaN(y) || isNaN(m)) return;
+
+                while (y < curY || (y === curY && m <= curM)) {
+                    const lastDayOfMonth = new Date(y, m, 0).getDate();
+                    const targetDay = (sub.day === 'last' || parseInt(sub.day, 10) >= lastDayOfMonth)
+                        ? lastDayOfMonth
+                        : parseInt(sub.day, 10);
+
+                    // 今月で、まだ支払日が来ていない場合はスキップ
+                    if (y === curY && m === curM && curD < targetDay) {
+                        break;
+                    }
+
+                    // 確定的ID: sub.id * 10000 + YYYYMM (PC側と重複しない数値ID)
+                    const ymNum = (y % 100) * 100 + m;
+                    const entryId = (sub.id * 10000) + ymNum;
+
+                    // 既に登録済み（削除済み含む）でなければ自動追加
+                    if (!existingIds.has(entryId)) {
+                        const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`;
+                        const newItem = {
+                            id: entryId,
+                            subId: sub.id,
+                            date: dateStr,
+                            title: sub.title,
+                            amount: sub.amount,
+                            category: sub.category,
+                            updatedAt: Date.now()
+                        };
+                        if (sub.memo) newItem.memo = sub.memo;
+                        db.push(newItem);
+                        existingIds.add(entryId);
+                        addedCount++;
+                    }
+
+                    m++;
+                    if (m > 12) {
+                        m = 1;
+                        y++;
+                    }
+                }
+            });
+
+            if (addedCount > 0) {
+                db.sort((a, b) => new Date(b.date) - new Date(a.date));
+                save();
+            }
+            return addedCount;
         }
 
         function renderCats() {
@@ -396,7 +491,7 @@
                 h += `
                 <div class="history-item flex justify-between items-center">
                     <div style="flex:1; padding-right:8px;">
-                        <small style="color:#666">${i.category}</small>
+                        <small style="color:#666">${i.category}</small>${i.subId ? '<span class="sub-badge">🔄定期</span>' : ''}
                         <div>${i.title}</div>
                         ${i.memo ? `<div class="memo-text">💬 ${i.memo}</div>` : ''}
                     </div>
@@ -415,7 +510,6 @@
             document.getElementById('sum-bal').innerText = (si-so).toLocaleString();
         }
 
-        // ① 論理削除（deletedフラグを立てて同期可能にする）
         function del(id) {
             if(confirm('削除しますか？')) {
                 const idx = db.findIndex(i => i.id === id);
@@ -426,6 +520,202 @@
                     save();
                     render();
                 }
+            }
+        }
+
+        /* --- 定期管理（サブスク・月謝等）モーダル --- */
+        function getYearMonthStr(dateObj) {
+            return `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
+        }
+
+        function registerSubFromInput() {
+            const d = document.getElementById('in-date').value;
+            const t = document.getElementById('in-title').value.trim();
+            const m = document.getElementById('in-memo').value.trim();
+            const a = parseInt(document.getElementById('in-amt').dataset.val) || 0;
+            const c = document.getElementById('in-cat').value;
+
+            const dayVal = d ? Math.min(parseInt(d.split('-')[2], 10), 28).toString() : '1';
+            // 編集中の明細から定期化する場合は「来月から開始」を初期値にして二重登録を防ぐ
+            const now = new Date();
+            const nextM = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+            const defaultStart = editId ? getYearMonthStr(nextM) : getYearMonthStr(now);
+
+            openSubsModal({
+                title: t,
+                amount: a || '',
+                category: c,
+                day: dayVal,
+                memo: m,
+                startMonth: defaultStart
+            });
+        }
+
+        function openSubsModal(prefill = null, editingSubId = null) {
+            const m = document.getElementById('modal');
+            const b = document.getElementById('m-body');
+            document.getElementById('m-title').innerText = "🔄 定期収支の管理";
+            b.style.gridTemplateColumns = '1fr';
+
+            const activeSubs = getActiveSubs();
+            const now = new Date();
+            const thisMonthStr = getYearMonthStr(now);
+            const nextMonthStr = getYearMonthStr(new Date(now.getFullYear(), now.getMonth() + 1, 1));
+
+            let formData = {
+                title: '', amount: '', category: cats[0] || '食費', day: '1', memo: '', startMonth: thisMonthStr
+            };
+
+            if (editingSubId) {
+                const target = subs.find(s => s.id === editingSubId);
+                if (target) formData = { ...target };
+            } else if (prefill) {
+                formData = { ...formData, ...prefill };
+            }
+
+            let dayOptions = '';
+            for (let d = 1; d <= 28; d++) {
+                dayOptions += `<option value="${d}" ${String(formData.day) === String(d) ? 'selected' : ''}>毎月 ${d}日</option>`;
+            }
+            dayOptions += `<option value="last" ${formData.day === 'last' ? 'selected' : ''}>毎月 月末</option>`;
+
+            const catOptions = cats.map(c => `<option value="${c}" ${formData.category === c ? 'selected' : ''}>${c}</option>`).join('');
+
+            const monthlyTotal = activeSubs
+                .filter(s => s.active !== false && s.category !== '収入')
+                .reduce((sum, s) => sum + s.amount, 0);
+
+            let listHtml = '';
+            if (activeSubs.length === 0) {
+                listHtml = `<div style="text-align:center; color:#666; font-size:12px; padding:12px;">登録されている定期項目はありません</div>`;
+            } else {
+                listHtml = activeSubs.map(s => {
+                    const dayLabel = s.day === 'last' ? '月末' : `${s.day}日`;
+                    const isPaused = s.active === false;
+                    return `
+                    <div class="export-row" style="opacity:${isPaused ? '0.5' : '1'};">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <span style="font-size:11px; color:var(--blue); font-weight:bold;">毎月${dayLabel}</span>
+                                <span style="font-size:11px; color:#888; margin-left:4px;">[${s.category}]</span>
+                                <span style="font-size:10px; color:#666; margin-left:4px;">(${s.startMonth}〜)</span>
+                                <div style="font-size:14px; font-weight:bold; margin-top:2px;">${s.title}</div>
+                                ${s.memo ? `<div style="font-size:11px; color:#888;">💬 ${s.memo}</div>` : ''}
+                            </div>
+                            <div style="text-align:right;">
+                                <div class="${s.category === '収入' ? 'income' : 'expense'}" style="font-weight:bold; font-size:14px;">¥${s.amount.toLocaleString()}</div>
+                                <div class="flex gap-1" style="margin-top:6px; justify-content:flex-end;">
+                                    <button onclick="toggleSubActive(${s.id})" class="btn-gray" style="padding:4px 8px; font-size:10px; color:${isPaused ? 'var(--green)' : '#aaa'};">${isPaused ? '再開' : '停止'}</button>
+                                    <button onclick="openSubsModal(null, ${s.id})" class="btn-gray" style="padding:4px 8px; font-size:10px; color:var(--blue);">編集</button>
+                                    <button onclick="deleteSub(${s.id})" class="btn-gray" style="padding:4px 8px; font-size:10px; color:var(--red);">削除</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('');
+            }
+
+            b.innerHTML = `
+                <div class="export-row" style="border-color:var(--blue);">
+                    <div style="font-size:12px; font-weight:bold; color:var(--blue); margin-bottom:4px;">
+                        ${editingSubId ? '✏️ 定期項目の編集' : '＋ 新規 定期項目の登録'}
+                    </div>
+                    <div class="flex gap-2">
+                        <select id="sub-day" style="flex:1;">${dayOptions}</select>
+                        <select id="sub-cat" style="flex:1;">${catOptions}</select>
+                    </div>
+                    <div class="flex gap-2">
+                        <input type="text" id="sub-title" placeholder="項目名 (例: Netflix, 月謝)" value="${(formData.title || '').replace(/"/g, '&quot;')}" style="flex:1.3;">
+                        <input type="number" id="sub-amt" placeholder="金額" value="${formData.amount}" style="flex:1;">
+                    </div>
+                    <input type="text" id="sub-memo" placeholder="メモ・注釈(任意)" value="${(formData.memo || '').replace(/"/g, '&quot;')}" style="font-size:12px;">
+                    <div class="flex justify-between items-center" style="margin-top:2px;">
+                        <span style="font-size:11px; color:#aaa;">自動登録の開始月:</span>
+                        <input type="month" id="sub-start" value="${formData.startMonth}" style="padding:4px 8px; font-size:12px;">
+                    </div>
+                    <div class="flex gap-1" style="justify-content:flex-end; margin-bottom:4px;">
+                        <button type="button" onclick="document.getElementById('sub-start').value='${thisMonthStr}'" class="btn-gray" style="font-size:10px; padding:3px 8px;">今月から</button>
+                        <button type="button" onclick="document.getElementById('sub-start').value='${nextMonthStr}'" class="btn-gray" style="font-size:10px; padding:3px 8px;">来月から(今月入力済)</button>
+                    </div>
+                    <div class="flex gap-2">
+                        ${editingSubId ? `<button onclick="openSubsModal()" class="btn-gray" style="flex:1; padding:10px;">キャンセル</button>` : ''}
+                        <button onclick="saveSub(${editingSubId || 'null'})" class="btn-blue" style="flex:2; padding:10px;">${editingSubId ? '更新する' : '定期リストに追加'}</button>
+                    </div>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; padding:0 4px;">
+                    <span style="font-size:12px; font-weight:bold; color:#aaa;">登録済み一覧 (${activeSubs.length}件)</span>
+                    <span style="font-size:12px; color:var(--red); font-weight:bold;">月額計: ¥${monthlyTotal.toLocaleString()}</span>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto;">
+                    ${listHtml}
+                </div>
+            `;
+            m.style.display = 'flex';
+        }
+
+        function saveSub(editingSubId) {
+            const day = document.getElementById('sub-day').value;
+            const category = document.getElementById('sub-cat').value;
+            const title = document.getElementById('sub-title').value.trim();
+            const amount = parseInt(document.getElementById('sub-amt').value, 10);
+            const memo = document.getElementById('sub-memo').value.trim();
+            const startMonth = document.getElementById('sub-start').value;
+
+            if (!title || isNaN(amount) || amount <= 0 || !startMonth) {
+                alert("項目名、正しい金額、開始月を入力してください。");
+                return;
+            }
+
+            if (editingSubId) {
+                const idx = subs.findIndex(s => s.id === editingSubId);
+                if (idx !== -1) {
+                    subs[idx] = {
+                        ...subs[idx],
+                        title, amount, category, day, startMonth,
+                        updatedAt: Date.now()
+                    };
+                    if (memo) subs[idx].memo = memo; else delete subs[idx].memo;
+                }
+            } else {
+                const newSub = {
+                    id: Date.now(),
+                    title, amount, category, day, startMonth,
+                    active: true,
+                    updatedAt: Date.now()
+                };
+                if (memo) newSub.memo = memo;
+                subs.push(newSub);
+            }
+
+            const added = processSubscriptions();
+            save();
+            render();
+            openSubsModal();
+            if (added > 0) {
+                showToast(`🔄 ${added}件の定期明細を自動反映しました`);
+            }
+        }
+
+        function toggleSubActive(id) {
+            const sub = subs.find(s => s.id === id);
+            if (!sub) return;
+            sub.active = (sub.active === false) ? true : false;
+            sub.updatedAt = Date.now();
+            if (sub.active) processSubscriptions();
+            save();
+            render();
+            openSubsModal();
+        }
+
+        function deleteSub(id) {
+            if (!confirm("この定期設定を削除しますか？\n（※過去に自動登録された家計簿明細は消えません）")) return;
+            const sub = subs.find(s => s.id === id);
+            if (sub) {
+                sub.deleted = true;
+                sub.updatedAt = Date.now();
+                save();
+                openSubsModal();
             }
         }
 
@@ -558,10 +848,9 @@
         }
         function jumpToYear(y) { focus.setFullYear(y); render(); document.getElementById('modal').style.display='none'; }
 
-        /* --- ② ワンタップ共有 & エクスポート --- */
+        /* --- ワンタップ共有 & エクスポート --- */
         let exportFormat = 'json';
 
-        // フッターの「📤 共有」ボタンから全期間JSONをワンタップ共有
         function quickShareAll() {
             runExport('all', 'share', 'json');
         }
@@ -595,8 +884,6 @@
         async function runExport(rangeType, action = 'download', overrideFormat = null) {
             const fmt = overrideFormat || exportFormat;
             const now = new Date();
-            // JSON出力時は論理削除(deleted:true)も含めて出力し、PC側と削除同期できるようにする
-            // CSV出力時は有効なデータのみ出力する
             const sourceList = (fmt === 'json') ? db : getActiveDb();
             let filteredDb = [];
             let filenameSuffix = "";
@@ -626,6 +913,7 @@
                     exportedAt: new Date().toISOString(),
                     range: rangeType,
                     cats: cats,
+                    subs: subs,
                     db: filteredDb
                 };
                 mimeType = 'application/json';
@@ -640,7 +928,6 @@
 
             document.getElementById('modal').style.display = 'none';
 
-            // Web Share API によるワンタップ共有
             if (action === 'share') {
                 const file = new File([blob], filename, { type: mimeType });
                 if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -651,7 +938,7 @@
                         });
                         return;
                     } catch (err) {
-                        if (err.name === 'AbortError') return; // ユーザーキャンセル時は何もしない
+                        if (err.name === 'AbortError') return;
                     }
                 } else if (navigator.share) {
                     try {
@@ -667,7 +954,6 @@
                         if (err.name === 'AbortError') return;
                     }
                 }
-                // Web Share 非対応ブラウザの場合は通常のファイル保存へフォールバック
             }
 
             const a = document.createElement('a');
@@ -705,7 +991,7 @@
             b.innerHTML = `
                 <button class="card" onclick="executeImport('merge')" style="padding:14px; text-align:left; border-color:var(--blue);">
                     <div style="color:var(--blue); font-size:15px; margin-bottom:4px;">🔄 既存データと統合（マージ）</div>
-                    <div style="font-size:11px; color:#aaa; font-weight:normal;">追加・編集・削除（論理削除）を判定して最新の状態に統合します（推奨）</div>
+                    <div style="font-size:11px; color:#aaa; font-weight:normal;">明細・定期登録設定を判定して最新の状態に統合します（推奨）</div>
                 </button>
                 <button class="card" onclick="executeImport('overwrite')" style="padding:14px; text-align:left;">
                     <div style="color:var(--red); font-size:15px; margin-bottom:4px;">⚠️ 完全に上書き（置換）</div>
@@ -727,6 +1013,10 @@
                 if (d.cats && Array.isArray(d.cats)) {
                     cats = [...new Set([...d.cats, '収入'])];
                 }
+                if (d.subs && Array.isArray(d.subs)) {
+                    subs = d.subs;
+                }
+                processSubscriptions();
                 db.sort((a, b) => new Date(b.date) - new Date(a.date));
                 save();
                 renderCats();
@@ -742,7 +1032,6 @@
                         const inTime = item.updatedAt || 0;
                         const exTime = existing.updatedAt || 0;
 
-                        // 削除フラグの同期と更新日時の比較
                         if (item.deleted && !existing.deleted) {
                             if (inTime >= exTime || exTime === 0) {
                                 existing.deleted = true;
@@ -768,14 +1057,31 @@
                     }
                 });
 
+                // 定期設定(subs)のマージ
+                if (d.subs && Array.isArray(d.subs)) {
+                    const subMap = new Map(subs.map(s => [s.id, s]));
+                    d.subs.forEach(inSub => {
+                        if (subMap.has(inSub.id)) {
+                            const exSub = subMap.get(inSub.id);
+                            if ((inSub.updatedAt || 0) >= (exSub.updatedAt || 0)) {
+                                Object.assign(exSub, inSub);
+                            }
+                        } else {
+                            subs.push(inSub);
+                            subMap.set(inSub.id, inSub);
+                        }
+                    });
+                }
+
                 if (d.cats && Array.isArray(d.cats)) {
                     cats = [...new Set([...cats, ...d.cats, '収入'])];
                 }
+                const subAdded = processSubscriptions();
                 db.sort((a, b) => new Date(b.date) - new Date(a.date));
                 save();
                 renderCats();
                 render();
-                alert(`統合完了：新規 ${added}件 追加 / ${updated}件 更新 / ${deletedSync}件 削除反映`);
+                alert(`統合完了：新規 ${added + subAdded}件 追加 / ${updated}件 更新 / ${deletedSync}件 削除反映`);
             }
         }
 
