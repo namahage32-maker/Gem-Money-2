@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GemMoney2 v5</title>
+    <title>GemMoney2 v6</title>
 
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#121212">
+    <meta name="theme-color" href="#121212">
     <link rel="apple-touch-icon" href="icon.png">
 
     <style>
@@ -45,22 +45,70 @@
         .numpad button:active { background: #444; }
         .amt-display { flex: 1; text-align: right; font-size: 20px; font-weight: bold; background: #111; color: var(--blue); border: 1px solid #444; outline: none; }
 
+        /* ③④ クイックチップ共通バー（横スクロール・スクロールバー非表示） */
+        .chip-scroll-bar {
+            display: flex;
+            gap: 6px;
+            overflow-x: auto;
+            padding: 2px 0 6px 0;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+        }
+        .chip-scroll-bar::-webkit-scrollbar { display: none; }
+
+        .quick-chip {
+            flex-shrink: 0;
+            background: #252525;
+            border: 1px solid #3a3a3a;
+            border-radius: 999px;
+            padding: 5px 10px;
+            font-size: 11px;
+            color: #ccc;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.12s;
+        }
+        .quick-chip:active {
+            transform: scale(0.96);
+            background: #383838;
+        }
+        .cat-chip-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        /* ⑩ 履歴リストのカテゴリ色分けバッジ */
+        .history-cat-badge {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: bold;
+            padding: 2px 7px;
+            border-radius: 4px;
+            margin-bottom: 3px;
+            letter-spacing: 0.2px;
+        }
+
         .suggest-list {
             position: absolute; top: 100%; left: 0; right: 0;
             background: #2a2a2a; border: 1px solid var(--gray); border-top: none;
             border-radius: 0 0 6px 6px; z-index: 20; max-height: 150px; overflow-y: auto;
             box-shadow: 0 4px 8px rgba(0,0,0,0.8); display: none;
         }
-        .suggest-item { padding: 12px; border-bottom: 1px solid #333; cursor: pointer; color: var(--text); font-size: 14px; }
+        .suggest-item { padding: 12px; border-bottom: 1px solid #333; cursor: pointer; color: var(--text); font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
         .suggest-item:last-child { border-bottom: none; }
         .suggest-item:active { background: #444; }
-        .suggest-cat { font-size: 11px; color: var(--blue); margin-left: 8px; border: 1px solid var(--blue); padding: 2px 4px; border-radius: 4px; }
+        .suggest-cat { font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 4px; }
         
         .memo-btn-active { border: 1px solid var(--blue) !important; color: var(--blue) !important; }
         .export-row { display: flex; flex-direction: column; gap: 6px; background: #161616; padding: 10px; border-radius: 8px; border: 1px solid #2a2a2a; }
         
-        .sub-badge { font-size: 10px; color: var(--blue); border: 1px solid var(--blue); border-radius: 4px; padding: 1px 4px; margin-left: 4px; }
-        .toast-notice { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); background: var(--blue); color: #fff; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: bold; z-index: 200; box-shadow: 0 4px 12px rgba(0,0,0,0.6); display: none; }
+        .sub-badge { font-size: 10px; color: var(--blue); border: 1px solid var(--blue); border-radius: 4px; padding: 1px 4px; margin-left: 4px; vertical-align: middle; }
+        .toast-notice { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); background: var(--blue); color: #fff; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: bold; z-index: 200; box-shadow: 0 4px 12px rgba(0,0,0,0.6); display: none; white-space: nowrap; }
     </style>
 </head>
 <body>
@@ -68,7 +116,7 @@
     <div id="toast" class="toast-notice"></div>
 
     <div class="flex justify-between items-center mb-4">
-        <h2>GemMoney2 v5</h2>
+        <h2>GemMoney2 v6</h2>
         <div class="flex">
             <button onclick="setView('day')" id="t-day" class="tab-btn">一日</button>
             <button onclick="setView('month')" id="t-month" class="tab-btn tab-active">月別</button>
@@ -79,7 +127,7 @@
     <div id="view-main">
         <div class="flex justify-between items-center card mb-4">
             <button onclick="move(-1)" style="color:var(--blue); padding:5px 15px;">◀</button>
-            <div onclick="openJump()" id="label-period" style="font-weight:bold; font-size:16px; cursor:pointer;">2026年 3月</div>
+            <div onclick="openJump()" id="label-period" style="font-weight:bold; font-size:16px; cursor:pointer;">2026年 10月</div>
             <button onclick="move(1)" style="color:var(--blue); padding:5px 15px;">▶</button>
         </div>
         
@@ -92,10 +140,16 @@
         <div class="card mb-4">
             <div class="flex gap-2 mb-2">
                 <input type="date" id="in-date" style="flex:1" onchange="syncFromInput()">
-                <select id="in-cat" style="flex:1"></select>
+                <select id="in-cat" style="flex:1" onchange="onCatSelectChange()"></select>
             </div>
+
+            <!-- ④ 直近3ヶ月の主要カテゴリ・ワンタップバー -->
+            <div id="quick-cat-bar" class="chip-scroll-bar"></div>
             
-            <div class="flex gap-2 mb-2">
+            <!-- ③ 直近3ヶ月の頻出項目ショートカットチップ -->
+            <div id="freq-item-bar" class="chip-scroll-bar"></div>
+
+            <div class="flex gap-2 mb-2" style="margin-top:2px;">
                 <div style="position:relative; flex:1;">
                     <input type="text" id="in-title" placeholder="項目名(任意)" style="width:100%" autocomplete="off" oninput="handleSuggest(this.value)" onblur="setTimeout(()=>closeSuggest(), 200)">
                     <div id="suggest-box" class="suggest-list"></div>
@@ -181,9 +235,14 @@
 
     <script>
         const DEFAULT_CATS = ["食費", "車", "生活雑費", "育児", "税金", "ふるさと納税", "緊急支出", "保険", "遊興費", "業務費", "投資", "負債", "収入"];
+        // ⑩ 統計グラフ・履歴リスト・チップで共通利用するカラーパレット
+        const COLOR_PALETTE = ['#ff6b6b', '#fcc419', '#51cf66', '#845ef7', '#f06595', '#20c997', '#ff922b', '#fa5252', '#fd7e14', '#40c057', '#be4bdb', '#38d9a9', '#748ffc'];
+        const SHORTCUT_LOOKBACK_MONTHS = 3; // ③④ 直近3ヶ月から頻出項目・カテゴリを抽出
+
         let db = JSON.parse(localStorage.getItem('gem_db')) || [];
         let cats = JSON.parse(localStorage.getItem('gem_cats')) || DEFAULT_CATS;
         let subs = JSON.parse(localStorage.getItem('gem_subs')) || [];
+        let budgets = JSON.parse(localStorage.getItem('gem_budgets')) || {}; // GemWallet v12との互換保持用
         let mode = 'month', focus = new Date();
         let currentAmt = "";
         let editId = null; 
@@ -201,6 +260,7 @@
             localStorage.setItem('gem_db', JSON.stringify(db));
             localStorage.setItem('gem_cats', JSON.stringify(cats));
             localStorage.setItem('gem_subs', JSON.stringify(subs));
+            localStorage.setItem('gem_budgets', JSON.stringify(budgets));
         }
 
         function showToast(msg) {
@@ -210,7 +270,15 @@
             setTimeout(() => { t.style.display = 'none'; }, 3500);
         }
 
-        // 定期項目から生成する明細の確定ID（桁あふれしない安全な13〜14桁整数）
+        // ⑩ カテゴリごとの固有カラーを取得（統計グラフの色と完全一致）
+        function getCatColor(cat) {
+            if (cat === '収入') return '#4dabf7';
+            const expCats = cats.filter(c => c !== '収入');
+            const idx = expCats.indexOf(cat);
+            if (idx === -1) return '#999999';
+            return COLOR_PALETTE[idx % COLOR_PALETTE.length];
+        }
+
         function makeSubEntryId(subId, year, month) {
             const baseSubId = subId > 10000000000 ? (subId % 1000000000) : subId;
             return (baseSubId * 10000) + ((year % 100) * 100) + month;
@@ -226,11 +294,10 @@
             }
         }
 
-        /* --- 定期支出の起動時遡及チェック＆自動登録（桁あふれ修正＆自動修復つき） --- */
+        /* --- 定期支出の起動時遡及チェック＆自動登録 --- */
         function processSubscriptions() {
             let modified = false;
 
-            // 先ほどのバグで桁あふれ（MAX_SAFE_INTEGER超え）した不完全な自動生成データを自動除去
             const beforeLen = db.length;
             db = db.filter(i => !(i.subId && i.id > 9000000000000000));
             if (db.length !== beforeLen) modified = true;
@@ -241,7 +308,6 @@
             const curD = now.getDate();
 
             const existingIds = new Set(db.map(i => i.id));
-            // 「どの定期ルール(subId)の、何年何月(YYYY-MM)が既に存在するか」でも確実に重複チェック
             const existingSubMonths = new Set();
             db.forEach(i => {
                 if (i.subId && i.date) {
@@ -266,7 +332,6 @@
                         ? lastDayOfMonth
                         : parseInt(sub.day, 10);
 
-                    // 今月で、まだ支払日が来ていない場合はスキップ
                     if (y === curY && m === curM && curD < targetDay) {
                         break;
                     }
@@ -275,7 +340,6 @@
                     const subMonthKey = `${sub.id}_${ymStr}`;
                     const entryId = makeSubEntryId(sub.id, y, m);
 
-                    // 既にその月の定期明細が存在しない場合のみ追加
                     if (!existingSubMonths.has(subMonthKey) && !existingIds.has(entryId)) {
                         const dateStr = `${ymStr}-${String(targetDay).padStart(2, '0')}`;
                         const newItem = {
@@ -310,10 +374,131 @@
             return addedCount;
         }
 
+        /* --- ③④ 直近3ヶ月（90日）の手動入力データ取得 --- */
+        function getRecentManualItems() {
+            const cutoff = new Date();
+            cutoff.setMonth(cutoff.getMonth() - SHORTCUT_LOOKBACK_MONTHS);
+            const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`;
+            return getActiveDb().filter(i => !i.subId && i.date && i.date >= cutoffStr);
+        }
+
+        /* --- ④ 主要カテゴリ・ワンタップチップの描画 --- */
+        function renderQuickCats() {
+            const bar = document.getElementById('quick-cat-bar');
+            if (!bar) return;
+
+            const recent = getRecentManualItems();
+            const counts = {};
+            recent.forEach(i => {
+                if (i.category && cats.includes(i.category)) {
+                    counts[i.category] = (counts[i.category] || 0) + 1;
+                }
+            });
+
+            // 直近3ヶ月で使われた頻度順（最大7件）＋ 足りない場合はデフォルト順で補完
+            const picked = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+            for (const c of cats) {
+                if (picked.length >= 7) break;
+                if (!picked.includes(c)) picked.push(c);
+            }
+            const topCats = picked.slice(0, 7);
+            const currentCat = document.getElementById('in-cat').value;
+
+            bar.innerHTML = topCats.map(c => {
+                const col = getCatColor(c);
+                const isSelected = (c === currentCat);
+                const style = isSelected
+                    ? `border-color:${col}; background:${col}28; color:#fff; font-weight:bold;`
+                    : ``;
+                return `
+                    <div class="quick-chip" style="${style}" onclick="selectQuickCat('${c.replace(/'/g, "\\'")}')">
+                        <span class="cat-chip-dot" style="background:${col};"></span>
+                        <span>${c}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function selectQuickCat(cat) {
+            const sel = document.getElementById('in-cat');
+            if (cats.includes(cat)) {
+                sel.value = cat;
+                renderQuickCats();
+            }
+        }
+
+        function onCatSelectChange() {
+            renderQuickCats();
+        }
+
+        /* --- ③ 直近3ヶ月の頻出ショートカットチップ描画 --- */
+        function renderFreqShortcuts() {
+            const bar = document.getElementById('freq-item-bar');
+            if (!bar) return;
+
+            const recent = getRecentManualItems();
+            const map = {};
+
+            recent.forEach(i => {
+                const t = (i.title || '').trim();
+                if (!t || t === '未分類') return;
+                if (!map[t]) {
+                    map[t] = { title: t, category: i.category, count: 0, lastDate: i.date };
+                }
+                map[t].count++;
+                if (i.date >= map[t].lastDate) {
+                    map[t].lastDate = i.date;
+                    map[t].category = i.category;
+                }
+            });
+
+            const topItems = Object.values(map)
+                .sort((a, b) => (b.count - a.count) || b.lastDate.localeCompare(a.lastDate))
+                .slice(0, 6);
+
+            if (topItems.length === 0) {
+                bar.style.display = 'none';
+                return;
+            }
+
+            bar.style.display = 'flex';
+            const currentTitle = document.getElementById('in-title').value.trim();
+
+            bar.innerHTML = topItems.map(item => {
+                const col = getCatColor(item.category);
+                const isActive = (currentTitle === item.title);
+                const style = isActive
+                    ? `border-color:${col}; background:${col}28; color:#fff; font-weight:bold;`
+                    : ``;
+                return `
+                    <div class="quick-chip" style="${style}" onclick="applyFreqShortcut('${item.title.replace(/'/g, "\\'")}', '${item.category.replace(/'/g, "\\'")}')">
+                        <span style="color:${col}; font-weight:bold;">⚡</span>
+                        <span>${item.title}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function applyFreqShortcut(title, category) {
+            document.getElementById('in-title').value = title;
+            if (cats.includes(category)) {
+                document.getElementById('in-cat').value = category;
+            }
+            renderQuickCats();
+            renderFreqShortcuts();
+            closeSuggest();
+        }
+
         function renderCats() {
+            const sel = document.getElementById('in-cat');
+            const prevVal = sel.value;
             const h = cats.map(c => `<option value="${c}">${c}</option>`).join('');
-            document.getElementById('in-cat').innerHTML = h;
+            sel.innerHTML = h;
+            if (prevVal && cats.includes(prevVal)) sel.value = prevVal;
+
             document.getElementById('stat-cat').innerHTML = cats.filter(c=>c!=='収入').map(c => `<option value="${c}">${c}</option>`).join('');
+            renderQuickCats();
+            renderFreqShortcuts();
         }
 
         function setView(m) {
@@ -363,6 +548,7 @@
         }
 
         function handleSuggest(val) {
+            renderFreqShortcuts();
             const box = document.getElementById('suggest-box');
             if (!val) { box.style.display = 'none'; return; }
             const matches = [];
@@ -377,11 +563,13 @@
                 if (matches.length >= 5) break;
             }
             if (matches.length > 0) {
-                box.innerHTML = matches.map(m => 
-                    `<div class="suggest-item" onclick="selectSuggest('${m.title.replace(/'/g, "\\'")}', '${m.category.replace(/'/g, "\\'")}')">
-                        ${m.title} <span class="suggest-cat">${m.category}</span>
-                    </div>`
-                ).join('');
+                box.innerHTML = matches.map(m => {
+                    const col = getCatColor(m.category);
+                    return `<div class="suggest-item" onclick="selectSuggest('${m.title.replace(/'/g, "\\'")}', '${m.category.replace(/'/g, "\\'")}')">
+                        <span>${m.title}</span>
+                        <span class="suggest-cat" style="color:${col}; background:${col}22; border:1px solid ${col}66;">${m.category}</span>
+                    </div>`;
+                }).join('');
                 box.style.display = 'block';
             } else {
                 box.style.display = 'none';
@@ -391,6 +579,8 @@
         function selectSuggest(title, cat) {
             document.getElementById('in-title').value = title;
             if (cats.includes(cat)) document.getElementById('in-cat').value = cat;
+            renderQuickCats();
+            renderFreqShortcuts();
             closeSuggest();
         }
 
@@ -417,6 +607,8 @@
             }
             document.getElementById('in-cat').value = item.category;
             document.getElementById('in-title').value = item.title;
+            renderQuickCats();
+            renderFreqShortcuts();
             
             const memoInput = document.getElementById('in-memo');
             const memoWrap = document.getElementById('memo-wrap');
@@ -462,6 +654,8 @@
             } else {
                 document.getElementById('in-date').valueAsDate = new Date();
             }
+            renderQuickCats();
+            renderFreqShortcuts();
         }
 
         function add() {
@@ -488,7 +682,8 @@
             }
             
             db.sort((a,b) => new Date(b.date) - new Date(a.date));
-            save(); render();
+            save();
+            render();
             cancelEdit(); 
             closeSuggest();
         }
@@ -511,11 +706,16 @@
                 i.category === '収入' ? si+=i.amount : so+=i.amount;
                 if(mode==='month' && last !== i.date) { h += `<div style="font-size:10px; color:#555; margin-top:10px; border-bottom:1px solid #222">${i.date}</div>`; last = i.date; }
                 
+                // ⑩ カテゴリ色をグラフと統一してバッジ表示
+                const catCol = getCatColor(i.category);
+
                 h += `
                 <div class="history-item flex justify-between items-center">
                     <div style="flex:1; padding-right:8px;">
-                        <small style="color:#666">${i.category}</small>${i.subId ? '<span class="sub-badge">🔄定期</span>' : ''}
-                        <div>${i.title}</div>
+                        <div>
+                            <span class="history-cat-badge" style="color:${catCol}; background:${catCol}20; border:1px solid ${catCol}55;">${i.category}</span>${i.subId ? '<span class="sub-badge">🔄定期</span>' : ''}
+                        </div>
+                        <div style="margin-top:1px;">${i.title}</div>
                         ${i.memo ? `<div class="memo-text">💬 ${i.memo}</div>` : ''}
                     </div>
                     <div class="flex items-center gap-2">
@@ -531,6 +731,9 @@
             document.getElementById('sum-in').innerText = si.toLocaleString();
             document.getElementById('sum-out').innerText = so.toLocaleString();
             document.getElementById('sum-bal').innerText = (si-so).toLocaleString();
+
+            renderQuickCats();
+            renderFreqShortcuts();
         }
 
         function del(id) {
@@ -614,12 +817,13 @@
                 listHtml = activeSubs.map(s => {
                     const dayLabel = s.day === 'last' ? '月末' : `${s.day}日`;
                     const isPaused = s.active === false;
+                    const catCol = getCatColor(s.category);
                     return `
                     <div class="export-row" style="opacity:${isPaused ? '0.5' : '1'};">
                         <div class="flex justify-between items-center">
                             <div>
                                 <span style="font-size:11px; color:var(--blue); font-weight:bold;">毎月${dayLabel}</span>
-                                <span style="font-size:11px; color:#888; margin-left:4px;">[${s.category}]</span>
+                                <span class="history-cat-badge" style="color:${catCol}; background:${catCol}20; border:1px solid ${catCol}55; margin-left:4px;">${s.category}</span>
                                 <span style="font-size:10px; color:#666; margin-left:4px;">(${s.startMonth}〜)</span>
                                 <div style="font-size:14px; font-weight:bold; margin-top:2px;">${s.title}</div>
                                 ${s.memo ? `<div style="font-size:11px; color:#888;">💬 ${s.memo}</div>` : ''}
@@ -700,7 +904,6 @@
                     if (memo) subs[idx].memo = memo; else delete subs[idx].memo;
                 }
             } else {
-                // 桁あふれを防ぐ8〜9桁のユニークID
                 const compactId = Math.floor((Date.now() - 1700000000000) / 100) + Math.floor(Math.random() * 100);
                 const newSub = {
                     id: compactId,
@@ -759,10 +962,9 @@
                 years.forEach(y => periods.push(y));
             }
 
-            const colorPalette = ['#ff6b6b', '#fcc419', '#51cf66', '#845ef7', '#f06595', '#20c997', '#ff922b', '#fa5252', '#fd7e14', '#40c057', '#be4bdb'];
             const expCats = cats.filter(c => c !== '収入');
             const catColors = {};
-            expCats.forEach((c, i) => { catColors[c] = colorPalette[i % colorPalette.length]; });
+            expCats.forEach(c => { catColors[c] = getCatColor(c); });
 
             const data = periods.map(p => {
                 const items = activeList.filter(i => i.date.startsWith(p));
@@ -820,7 +1022,7 @@
 
             const catCont = document.getElementById('chart-cat');
             const targetCat = document.getElementById('stat-cat').value;
-            const targetColor = targetCat === '収入' ? 'var(--blue)' : (catColors[targetCat] || 'var(--blue)');
+            const targetColor = getCatColor(targetCat);
             const catData = periods.map(p => activeList.filter(i => i.date.startsWith(p) && i.category === targetCat).reduce((s,i)=>s+i.amount,0));
             const catMaxRaw = Math.max(...catData, 5000);
             const catPower = Math.pow(10, Math.floor(Math.log10(catMaxRaw)));
@@ -938,6 +1140,7 @@
                     range: rangeType,
                     cats: cats,
                     subs: subs,
+                    budgets: budgets, // GemWallet v12との互換保持
                     db: filteredDb
                 };
                 mimeType = 'application/json';
@@ -1040,6 +1243,9 @@
                 if (d.subs && Array.isArray(d.subs)) {
                     subs = d.subs;
                 }
+                if (d.budgets && typeof d.budgets === 'object') {
+                    budgets = d.budgets;
+                }
                 processSubscriptions();
                 db.sort((a, b) => new Date(b.date) - new Date(a.date));
                 save();
@@ -1099,6 +1305,10 @@
                 if (d.cats && Array.isArray(d.cats)) {
                     cats = [...new Set([...cats, ...d.cats, '収入'])];
                 }
+                if (d.budgets && typeof d.budgets === 'object') {
+                    budgets = { ...budgets, ...d.budgets };
+                }
+
                 const subAdded = processSubscriptions();
                 db.sort((a, b) => new Date(b.date) - new Date(a.date));
                 save();
