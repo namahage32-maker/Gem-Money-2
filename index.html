@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GemMoney2 v6</title>
+    <title>GemMoney2 v7</title>
 
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" href="#121212">
@@ -116,7 +116,7 @@
     <div id="toast" class="toast-notice"></div>
 
     <div class="flex justify-between items-center mb-4">
-        <h2>GemMoney2 v6</h2>
+        <h2>GemMoney2 v7</h2>
         <div class="flex">
             <button onclick="setView('day')" id="t-day" class="tab-btn">一日</button>
             <button onclick="setView('month')" id="t-month" class="tab-btn tab-active">月別</button>
@@ -234,9 +234,9 @@
     </div>
 
     <script>
-        const DEFAULT_CATS = ["食費", "車", "生活雑費", "育児", "税金", "ふるさと納税", "緊急支出", "保険", "遊興費", "業務費", "投資", "負債", "収入"];
+        const DEFAULT_CATS = ["食費", "交通費", "生活雑費", "育児", "税金", "ふるさと納税", "緊急支出", "保険", "遊興費", "業務費", "投資", "負債", "収入"];
         // ⑩ 統計グラフ・履歴リスト・チップで共通利用するカラーパレット
-        const COLOR_PALETTE = ['#ff6b6b', '#fcc419', '#51cf66', '#845ef7', '#f06595', '#20c997', '#ff922b', '#fa5252', '#fd7e14', '#40c057', '#be4bdb', '#38d9a9', '#748ffc'];
+        const COLOR_PALETTE = ['#ff4b4b', '#339af0', '#fcc419', '#20c997', '#be4bdb', '#ff922b', '#94d82d', '#f06595', '#5c7cfa', '#e8590c', '#22b8cf', '#d6336c', '#51cf66', '#ffd43b', '#845ef7', '#ff8787'];
         const SHORTCUT_LOOKBACK_MONTHS = 3; // ③④ 直近3ヶ月から頻出項目・カテゴリを抽出
 
         let db = JSON.parse(localStorage.getItem('gem_db')) || [];
