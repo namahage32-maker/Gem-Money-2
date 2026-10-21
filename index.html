@@ -242,7 +242,8 @@
         let db = JSON.parse(localStorage.getItem('gem_db')) || [];
         let cats = JSON.parse(localStorage.getItem('gem_cats')) || DEFAULT_CATS;
         let subs = JSON.parse(localStorage.getItem('gem_subs')) || [];
-        let budgets = JSON.parse(localStorage.getItem('gem_budgets')) || {}; // GemWallet v12との互換保持用
+        let budgets = JSON.parse(localStorage.getItem('gem_budgets')) || {}; // GemWalletとの互換保持用
+        let assetRecords = JSON.parse(localStorage.getItem('gem_assets')) || []; // GemAssetManagerデータ保持用
         let mode = 'month', focus = new Date();
         let currentAmt = "";
         let editId = null; 
@@ -261,6 +262,7 @@
             localStorage.setItem('gem_cats', JSON.stringify(cats));
             localStorage.setItem('gem_subs', JSON.stringify(subs));
             localStorage.setItem('gem_budgets', JSON.stringify(budgets));
+            localStorage.setItem('gem_assets', JSON.stringify(assetRecords));
         }
 
         function showToast(msg) {
@@ -1140,7 +1142,8 @@
                     range: rangeType,
                     cats: cats,
                     subs: subs,
-                    budgets: budgets, // GemWallet v12との互換保持
+                    budgets: budgets, // GemWalletとの互換保持
+                    assetRecords: assetRecords, // GemAssetManagerとの互換保持
                     db: filteredDb
                 };
                 mimeType = 'application/json';
@@ -1244,7 +1247,10 @@
                     subs = d.subs;
                 }
                 if (d.budgets && typeof d.budgets === 'object') {
-                    budgets = d.budgets;
+                    budgets = { ...budgets, ...d.budgets };
+                }
+                if (d.assetRecords && Array.isArray(d.assetRecords)) {
+                    assetRecords = d.assetRecords;
                 }
                 processSubscriptions();
                 db.sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -1307,6 +1313,9 @@
                 }
                 if (d.budgets && typeof d.budgets === 'object') {
                     budgets = { ...budgets, ...d.budgets };
+                }
+                if (d.assetRecords && Array.isArray(d.assetRecords)) {
+                    assetRecords = d.assetRecords;
                 }
 
                 const subAdded = processSubscriptions();
