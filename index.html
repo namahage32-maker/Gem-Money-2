@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GemMoney2 v7</title>
+    <title>GemMoney2 v8</title>
 
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" href="#121212">
@@ -45,12 +45,14 @@
         .numpad button:active { background: #444; }
         .amt-display { flex: 1; text-align: right; font-size: 20px; font-weight: bold; background: #111; color: var(--blue); border: 1px solid #444; outline: none; }
 
-        /* ③④ クイックチップ共通バー（横スクロール・スクロールバー非表示） */
+        /* ③④ クイックチップ共通バー（横スクロール・スクロールバー非表示・高さ固定でガタつき防止） */
         .chip-scroll-bar {
             display: flex;
             gap: 6px;
             overflow-x: auto;
             padding: 2px 0 6px 0;
+            min-height: 31px;
+            align-items: center;
             -webkit-overflow-scrolling: touch;
             scrollbar-width: none;
         }
@@ -116,7 +118,7 @@
     <div id="toast" class="toast-notice"></div>
 
     <div class="flex justify-between items-center mb-4">
-        <h2>GemMoney2 v7</h2>
+        <h2>GemMoney2 v8</h2>
         <div class="flex">
             <button onclick="setView('day')" id="t-day" class="tab-btn">一日</button>
             <button onclick="setView('month')" id="t-month" class="tab-btn tab-active">月別</button>
@@ -146,7 +148,7 @@
             <!-- ④ 直近3ヶ月の主要カテゴリ・ワンタップバー -->
             <div id="quick-cat-bar" class="chip-scroll-bar"></div>
             
-            <!-- ③ 直近3ヶ月の頻出項目ショートカットチップ -->
+            <!-- ③ 選択中カテゴリに応じた直近頻出項目ショートカットチップ -->
             <div id="freq-item-bar" class="chip-scroll-bar"></div>
 
             <div class="flex gap-2 mb-2" style="margin-top:2px;">
@@ -426,31 +428,41 @@
             if (cats.includes(cat)) {
                 sel.value = cat;
                 renderQuickCats();
+                renderFreqShortcuts(); // カテゴリ変更に連動して頻出項目チップを即時更新
             }
         }
 
         function onCatSelectChange() {
             renderQuickCats();
+            renderFreqShortcuts(); // プルダウン変更時も頻出項目チップを即時更新
         }
 
-        /* --- ③ 直近3ヶ月の頻出ショートカットチップ描画 --- */
+        /* --- ③ 選択中カテゴリごとの直近頻出ショートカットチップ描画 --- */
         function renderFreqShortcuts() {
             const bar = document.getElementById('freq-item-bar');
             if (!bar) return;
 
+            const currentCat = document.getElementById('in-cat').value;
             const recent = getRecentManualItems();
-            const map = {};
+            
+            // 1. まず直近3ヶ月から選択中カテゴリの履歴を抽出
+            let targetList = recent.filter(i => i.category === currentCat);
+            
+            // 2. 直近3ヶ月で1件も使っていないカテゴリ（税金や特別費など）の場合は、全期間から補完
+            if (targetList.length === 0) {
+                targetList = getActiveDb().filter(i => !i.subId && i.category === currentCat);
+            }
 
-            recent.forEach(i => {
+            const map = {};
+            targetList.forEach(i => {
                 const t = (i.title || '').trim();
                 if (!t || t === '未分類') return;
                 if (!map[t]) {
-                    map[t] = { title: t, category: i.category, count: 0, lastDate: i.date };
+                    map[t] = { title: t, category: currentCat, count: 0, lastDate: i.date };
                 }
                 map[t].count++;
                 if (i.date >= map[t].lastDate) {
                     map[t].lastDate = i.date;
-                    map[t].category = i.category;
                 }
             });
 
@@ -458,16 +470,16 @@
                 .sort((a, b) => (b.count - a.count) || b.lastDate.localeCompare(a.lastDate))
                 .slice(0, 6);
 
+            // 履歴が0件のカテゴリでもバーの高さを維持し、下のテンキーがズレて誤タップするのを防ぐ
             if (topItems.length === 0) {
-                bar.style.display = 'none';
+                bar.innerHTML = `<span style="font-size:10px; color:#555; padding-left:4px;">⚡「${currentCat}」の頻出項目はまだありません</span>`;
                 return;
             }
 
-            bar.style.display = 'flex';
             const currentTitle = document.getElementById('in-title').value.trim();
+            const col = getCatColor(currentCat);
 
             bar.innerHTML = topItems.map(item => {
-                const col = getCatColor(item.category);
                 const isActive = (currentTitle === item.title);
                 const style = isActive
                     ? `border-color:${col}; background:${col}28; color:#fff; font-weight:bold;`
