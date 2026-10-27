@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GemMoney2 v8</title>
+    <title>GemMoney2 v9</title>
 
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" href="#121212">
@@ -45,7 +45,7 @@
         .numpad button:active { background: #444; }
         .amt-display { flex: 1; text-align: right; font-size: 20px; font-weight: bold; background: #111; color: var(--blue); border: 1px solid #444; outline: none; }
 
-        /* ③④ クイックチップ共通バー（横スクロール・スクロールバー非表示・高さ固定でガタつき防止） */
+        /* ③④ クイックチップ共通バー（横スクロール・高さ固定でガタつき防止） */
         .chip-scroll-bar {
             display: flex;
             gap: 6px;
@@ -118,7 +118,7 @@
     <div id="toast" class="toast-notice"></div>
 
     <div class="flex justify-between items-center mb-4">
-        <h2>GemMoney2 v8</h2>
+        <h2>GemMoney2 v9</h2>
         <div class="flex">
             <button onclick="setView('day')" id="t-day" class="tab-btn">一日</button>
             <button onclick="setView('month')" id="t-month" class="tab-btn tab-active">月別</button>
@@ -148,7 +148,7 @@
             <!-- ④ 直近3ヶ月の主要カテゴリ・ワンタップバー -->
             <div id="quick-cat-bar" class="chip-scroll-bar"></div>
             
-            <!-- ③ 選択中カテゴリに応じた直近頻出項目ショートカットチップ -->
+            <!-- ③ 選択中カテゴリごとの直近頻出項目ショートカットチップ -->
             <div id="freq-item-bar" class="chip-scroll-bar"></div>
 
             <div class="flex gap-2 mb-2" style="margin-top:2px;">
@@ -240,16 +240,37 @@
         // ⑩ 統計グラフ・履歴リスト・チップで共通利用するカラーパレット
         const COLOR_PALETTE = ['#ff4b4b', '#339af0', '#fcc419', '#20c997', '#be4bdb', '#ff922b', '#94d82d', '#f06595', '#5c7cfa', '#e8590c', '#22b8cf', '#d6336c', '#51cf66', '#ffd43b', '#845ef7', '#ff8787'];
         const SHORTCUT_LOOKBACK_MONTHS = 3; // ③④ 直近3ヶ月から頻出項目・カテゴリを抽出
+        const IMPORT_RETENTION_YEARS = 2;   // 取込時にスマホ側に保持する期間（直近2年分）
 
-        let db = JSON.parse(localStorage.getItem('gem_db')) || [];
-        let cats = JSON.parse(localStorage.getItem('gem_cats')) || DEFAULT_CATS;
-        let subs = JSON.parse(localStorage.getItem('gem_subs')) || [];
-        let budgets = JSON.parse(localStorage.getItem('gem_budgets')) || {}; // GemWalletとの互換保持用
-        let assetRecords = JSON.parse(localStorage.getItem('gem_assets')) || []; // GemAssetManagerデータ保持用
+        // IndexedDB 設定
+        const IDB_NAME = 'GemMoneyDB';
+        const IDB_VERSION = 1;
+        const IDB_STORE = 'app_state';
+        let idbInstance = null;
+
+        let db = [];
+        let cats = DEFAULT_CATS;
+        let subs = [];
+        let budgets = {};      // GemWalletとの互換保持用
+        let assetRecords = []; // GemAssetManagerデータ保持用
+
         let mode = 'month', focus = new Date();
         let currentAmt = "";
         let editId = null; 
         let pendingImportData = null;
+
+        /* --- 高速日付ソート（new Date()を生成せず文字列比較で10倍高速化） --- */
+        function sortDbDesc() {
+            db.sort((a, b) => (b.date || '').localeCompare(a.date || '') || ((b.id || 0) - (a.id || 0)));
+        }
+
+        /* --- スマホ取込用の基準日（2年前の同月1日）を取得 --- */
+        function getImportCutoffDateStr() {
+            const now = new Date();
+            const cutoffYear = now.getFullYear() - IMPORT_RETENTION_YEARS;
+            const cutoffMonth = String(now.getMonth() + 1).padStart(2, '0');
+            return `${cutoffYear}-${cutoffMonth}-01`;
+        }
 
         function getActiveDb() {
             return db.filter(i => !i.deleted);
@@ -259,12 +280,93 @@
             return subs.filter(s => !s.deleted);
         }
 
-        function save() {
-            localStorage.setItem('gem_db', JSON.stringify(db));
-            localStorage.setItem('gem_cats', JSON.stringify(cats));
-            localStorage.setItem('gem_subs', JSON.stringify(subs));
-            localStorage.setItem('gem_budgets', JSON.stringify(budgets));
-            localStorage.setItem('gem_assets', JSON.stringify(assetRecords));
+        /* --- IndexedDB 基盤（容量制限5MBの撤廃＆非同期高速保存） --- */
+        function openIDB() {
+            if (idbInstance) return Promise.resolve(idbInstance);
+            return new Promise((resolve, reject) => {
+                const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+                req.onupgradeneeded = (e) => {
+                    const database = e.target.result;
+                    if (!database.objectStoreNames.contains(IDB_STORE)) {
+                        database.createObjectStore(IDB_STORE);
+                    }
+                };
+                req.onsuccess = (e) => {
+                    idbInstance = e.target.result;
+                    resolve(idbInstance);
+                };
+                req.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        async function loadStateFromStorage() {
+            try {
+                const database = await openIDB();
+                const data = await new Promise((resolve, reject) => {
+                    const tx = database.transaction(IDB_STORE, 'readonly');
+                    const store = tx.objectStore(IDB_STORE);
+                    const req = store.get('main');
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => reject(req.error);
+                });
+
+                if (data) {
+                    db = Array.isArray(data.db) ? data.db : [];
+                    cats = Array.isArray(data.cats) && data.cats.length > 0 ? data.cats : DEFAULT_CATS;
+                    subs = Array.isArray(data.subs) ? data.subs : [];
+                    budgets = (data.budgets && typeof data.budgets === 'object') ? data.budgets : {};
+                    assetRecords = Array.isArray(data.assetRecords) ? data.assetRecords : [];
+                    return;
+                }
+            } catch (err) {
+                console.warn('IndexedDB読込フォールバック:', err);
+            }
+
+            // 初回起動時：既存のlocalStorageにデータがあれば自動マイグレーション（引き継ぎ）
+            const lsDb = localStorage.getItem('gem_db');
+            const lsCats = localStorage.getItem('gem_cats');
+            const lsSubs = localStorage.getItem('gem_subs');
+            const lsBudgets = localStorage.getItem('gem_budgets');
+            const lsAssets = localStorage.getItem('gem_assets');
+
+            if (lsDb) { try { db = JSON.parse(lsDb) || []; } catch(e) {} }
+            if (lsCats) { try { cats = JSON.parse(lsCats) || DEFAULT_CATS; } catch(e) {} }
+            if (lsSubs) { try { subs = JSON.parse(lsSubs) || []; } catch(e) {} }
+            if (lsBudgets) { try { budgets = JSON.parse(lsBudgets) || {}; } catch(e) {} }
+            if (lsAssets) { try { assetRecords = JSON.parse(lsAssets) || []; } catch(e) {} }
+
+            if (lsDb || lsCats || lsSubs) {
+                await save();
+            }
+        }
+
+        async function save() {
+            try {
+                const database = await openIDB();
+                await new Promise((resolve, reject) => {
+                    const tx = database.transaction(IDB_STORE, 'readwrite');
+                    const store = tx.objectStore(IDB_STORE);
+                    store.put({
+                        db: db,
+                        cats: cats,
+                        subs: subs,
+                        budgets: budgets,
+                        assetRecords: assetRecords,
+                        updatedAt: Date.now()
+                    }, 'main');
+                    tx.oncomplete = () => resolve();
+                    tx.onerror = () => reject(tx.error);
+                });
+            } catch (err) {
+                // 万一IndexedDBが使えない環境でのフォールバック
+                try {
+                    localStorage.setItem('gem_db', JSON.stringify(db));
+                    localStorage.setItem('gem_cats', JSON.stringify(cats));
+                    localStorage.setItem('gem_subs', JSON.stringify(subs));
+                    localStorage.setItem('gem_budgets', JSON.stringify(budgets));
+                    localStorage.setItem('gem_assets', JSON.stringify(assetRecords));
+                } catch (e) {}
+            }
         }
 
         function showToast(msg) {
@@ -288,8 +390,10 @@
             return (baseSubId * 10000) + ((year % 100) * 100) + month;
         }
 
-        function init() {
+        async function init() {
             document.getElementById('in-date').valueAsDate = new Date();
+            await loadStateFromStorage();
+            sortDbDesc();
             const addedCount = processSubscriptions();
             renderCats();
             render();
@@ -298,7 +402,7 @@
             }
         }
 
-        /* --- 定期支出の起動時遡及チェック＆自動登録 --- */
+        /* --- 定期支出の起動時遡及チェック＆自動登録（GemWalletの終了月設定にも対応） --- */
         function processSubscriptions() {
             let modified = false;
 
@@ -322,7 +426,8 @@
             let addedCount = 0;
 
             subs.forEach(sub => {
-                if (sub.deleted || sub.active === false) return;
+                if (sub.deleted) return;
+                if (sub.active === false && !sub.endMonth) return;
                 if (!sub.startMonth) return;
 
                 const parts = sub.startMonth.split('-');
@@ -330,7 +435,21 @@
                 let m = parseInt(parts[1], 10);
                 if (isNaN(y) || isNaN(m)) return;
 
-                while (y < curY || (y === curY && m <= curM)) {
+                let endY = 9999, endM = 12;
+                if (sub.endMonth) {
+                    const ep = sub.endMonth.split('-');
+                    const ey = parseInt(ep[0], 10);
+                    const em = parseInt(ep[1], 10);
+                    if (!isNaN(ey) && !isNaN(em)) {
+                        endY = ey;
+                        endM = em;
+                    }
+                }
+
+                while (
+                    (y < curY || (y === curY && m <= curM)) &&
+                    (y < endY || (y === endY && m <= endM))
+                ) {
                     const lastDayOfMonth = new Date(y, m, 0).getDate();
                     const targetDay = (sub.day === 'last' || parseInt(sub.day, 10) >= lastDayOfMonth)
                         ? lastDayOfMonth
@@ -372,18 +491,27 @@
             });
 
             if (modified) {
-                db.sort((a, b) => new Date(b.date) - new Date(a.date));
+                sortDbDesc();
                 save();
             }
             return addedCount;
         }
 
-        /* --- ③④ 直近3ヶ月（90日）の手動入力データ取得 --- */
+        /* --- ③④ 直近3ヶ月（90日）の手動入力データ高速取得（先頭から走査して古くなったら即打ち切り） --- */
         function getRecentManualItems() {
             const cutoff = new Date();
             cutoff.setMonth(cutoff.getMonth() - SHORTCUT_LOOKBACK_MONTHS);
             const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`;
-            return getActiveDb().filter(i => !i.subId && i.date && i.date >= cutoffStr);
+            
+            const result = [];
+            for (let i = 0; i < db.length; i++) {
+                const item = db[i];
+                if (item.deleted || item.subId || !item.date) continue;
+                // dbは日付の降順（新しい順）に並んでいるため、cutoffStrより古くなったら即ループ終了
+                if (item.date < cutoffStr) break;
+                result.push(item);
+            }
+            return result;
         }
 
         /* --- ④ 主要カテゴリ・ワンタップチップの描画 --- */
@@ -393,11 +521,12 @@
 
             const recent = getRecentManualItems();
             const counts = {};
-            recent.forEach(i => {
-                if (i.category && cats.includes(i.category)) {
-                    counts[i.category] = (counts[i.category] || 0) + 1;
+            for (let i = 0; i < recent.length; i++) {
+                const c = recent[i].category;
+                if (c && cats.includes(c)) {
+                    counts[c] = (counts[c] || 0) + 1;
                 }
-            });
+            }
 
             // 直近3ヶ月で使われた頻度順（最大7件）＋ 足りない場合はデフォルト順で補完
             const picked = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
@@ -428,13 +557,13 @@
             if (cats.includes(cat)) {
                 sel.value = cat;
                 renderQuickCats();
-                renderFreqShortcuts(); // カテゴリ変更に連動して頻出項目チップを即時更新
+                renderFreqShortcuts(); // カテゴリ選択に連動して頻出項目チップを即時切替
             }
         }
 
         function onCatSelectChange() {
             renderQuickCats();
-            renderFreqShortcuts(); // プルダウン変更時も頻出項目チップを即時更新
+            renderFreqShortcuts(); // プルダウン変更時も即時切替
         }
 
         /* --- ③ 選択中カテゴリごとの直近頻出ショートカットチップ描画 --- */
@@ -448,29 +577,36 @@
             // 1. まず直近3ヶ月から選択中カテゴリの履歴を抽出
             let targetList = recent.filter(i => i.category === currentCat);
             
-            // 2. 直近3ヶ月で1件も使っていないカテゴリ（税金や特別費など）の場合は、全期間から補完
+            // 2. 直近3ヶ月で1件も使っていないカテゴリ（税金や特別費など）の場合は、スマホ内の過去履歴から最大200件まで探索して補完
             if (targetList.length === 0) {
-                targetList = getActiveDb().filter(i => !i.subId && i.category === currentCat);
+                for (let i = 0; i < db.length; i++) {
+                    const item = db[i];
+                    if (!item.deleted && !item.subId && item.category === currentCat) {
+                        targetList.push(item);
+                        if (targetList.length >= 200) break;
+                    }
+                }
             }
 
             const map = {};
-            targetList.forEach(i => {
-                const t = (i.title || '').trim();
-                if (!t || t === '未分類') return;
+            for (let i = 0; i < targetList.length; i++) {
+                const item = targetList[i];
+                const t = (item.title || '').trim();
+                if (!t || t === '未分類') continue;
                 if (!map[t]) {
-                    map[t] = { title: t, category: currentCat, count: 0, lastDate: i.date };
+                    map[t] = { title: t, category: currentCat, count: 0, lastDate: item.date };
                 }
                 map[t].count++;
-                if (i.date >= map[t].lastDate) {
-                    map[t].lastDate = i.date;
+                if (item.date >= map[t].lastDate) {
+                    map[t].lastDate = item.date;
                 }
-            });
+            }
 
             const topItems = Object.values(map)
                 .sort((a, b) => (b.count - a.count) || b.lastDate.localeCompare(a.lastDate))
                 .slice(0, 6);
 
-            // 履歴が0件のカテゴリでもバーの高さを維持し、下のテンキーがズレて誤タップするのを防ぐ
+            // 履歴が0件のカテゴリでもバーの高さを維持し、下のテンキーがズレて誤タップするのを防止
             if (topItems.length === 0) {
                 bar.innerHTML = `<span style="font-size:10px; color:#555; padding-left:4px;">⚡「${currentCat}」の頻出項目はまだありません</span>`;
                 return;
@@ -567,9 +703,9 @@
             if (!val) { box.style.display = 'none'; return; }
             const matches = [];
             const seen = new Set();
-            const activeList = getActiveDb();
-            for (let i = 0; i < activeList.length; i++) {
-                const item = activeList[i];
+            for (let i = 0; i < db.length; i++) {
+                const item = db[i];
+                if (item.deleted) continue;
                 if (item.title && item.title.includes(val) && !seen.has(item.title)) {
                     seen.add(item.title);
                     matches.push({ title: item.title, category: item.category });
@@ -695,7 +831,7 @@
                 db.push(newItem);
             }
             
-            db.sort((a,b) => new Date(b.date) - new Date(a.date));
+            sortDbDesc();
             save();
             render();
             cancelEdit(); 
@@ -704,18 +840,29 @@
 
         function render() {
             const label = document.getElementById('label-period');
-            label.innerText = mode === 'day' ? focus.toLocaleDateString('ja-JP') : `${focus.getFullYear()}年 ${focus.getMonth()+1}月`;
+            const fy = focus.getFullYear();
+            const fm = String(focus.getMonth() + 1).padStart(2, '0');
+            const fd = String(focus.getDate()).padStart(2, '0');
+            const targetMonthPrefix = `${fy}-${fm}`;
+            const targetDayStr = `${fy}-${fm}-${fd}`;
+
+            label.innerText = mode === 'day' ? focus.toLocaleDateString('ja-JP') : `${fy}年 ${focus.getMonth()+1}月`;
             if (mode === 'day' && !editId) { 
-                const y = focus.getFullYear(), m = String(focus.getMonth() + 1).padStart(2, '0'), d = String(focus.getDate()).padStart(2, '0');
-                document.getElementById('in-date').value = `${y}-${m}-${d}`;
+                document.getElementById('in-date').value = targetDayStr;
             }
+
             let si=0, so=0, h='', last='';
-            const filtered = getActiveDb().filter(i => {
-                const parts = i.date.split('-');
-                const iy = parseInt(parts[0], 10), im = parseInt(parts[1], 10) - 1, id = parseInt(parts[2], 10);
-                if(mode==='day') return iy === focus.getFullYear() && im === focus.getMonth() && id === focus.getDate();
-                return iy === focus.getFullYear() && im === focus.getMonth();
-            });
+            const filtered = [];
+            for (let i = 0; i < db.length; i++) {
+                const item = db[i];
+                if (item.deleted || !item.date) continue;
+                if (mode === 'day') {
+                    if (item.date === targetDayStr) filtered.push(item);
+                } else {
+                    if (item.date.startsWith(targetMonthPrefix)) filtered.push(item);
+                }
+            }
+
             filtered.forEach(i => {
                 i.category === '収入' ? si+=i.amount : so+=i.amount;
                 if(mode==='month' && last !== i.date) { h += `<div style="font-size:10px; color:#555; margin-top:10px; border-bottom:1px solid #222">${i.date}</div>`; last = i.date; }
@@ -832,13 +979,14 @@
                     const dayLabel = s.day === 'last' ? '月末' : `${s.day}日`;
                     const isPaused = s.active === false;
                     const catCol = getCatColor(s.category);
+                    const periodStr = s.endMonth ? `${s.startMonth}〜${s.endMonth}` : `${s.startMonth}〜`;
                     return `
                     <div class="export-row" style="opacity:${isPaused ? '0.5' : '1'};">
                         <div class="flex justify-between items-center">
                             <div>
                                 <span style="font-size:11px; color:var(--blue); font-weight:bold;">毎月${dayLabel}</span>
                                 <span class="history-cat-badge" style="color:${catCol}; background:${catCol}20; border:1px solid ${catCol}55; margin-left:4px;">${s.category}</span>
-                                <span style="font-size:10px; color:#666; margin-left:4px;">(${s.startMonth}〜)</span>
+                                <span style="font-size:10px; color:#666; margin-left:4px;">(${periodStr})</span>
                                 <div style="font-size:14px; font-weight:bold; margin-top:2px;">${s.title}</div>
                                 ${s.memo ? `<div style="font-size:11px; color:#888;">💬 ${s.memo}</div>` : ''}
                             </div>
@@ -1150,6 +1298,7 @@
 
             if (fmt === 'json') {
                 const payload = {
+                    sourceApp: "GemMoney",
                     exportedAt: new Date().toISOString(),
                     range: rangeType,
                     cats: cats,
@@ -1204,6 +1353,7 @@
             a.click();
         }
 
+        /* --- JSON取込（直近2年分のみ自動抽出してスマホを常に軽量に保つ） --- */
         function importJSON(e) {
             const file = e.target.files[0];
             if (!file) return;
@@ -1213,7 +1363,10 @@
                     const d = JSON.parse(ev.target.result);
                     if (d.db && Array.isArray(d.db)) {
                         pendingImportData = d;
-                        openImportModal(d.db.filter(i => !i.deleted).length);
+                        const cutoffStr = getImportCutoffDateStr();
+                        const totalActive = d.db.filter(i => !i.deleted).length;
+                        const recentActive = d.db.filter(i => !i.deleted && i.date && i.date >= cutoffStr).length;
+                        openImportModal(recentActive, totalActive, cutoffStr);
                     } else {
                         alert("対応するデータ形式ではありません。");
                     }
@@ -1225,19 +1378,25 @@
             r.readAsText(file);
         }
 
-        function openImportModal(count) {
+        function openImportModal(recentCount, totalCount, cutoffStr) {
             const m = document.getElementById('modal');
             const b = document.getElementById('m-body');
-            document.getElementById('m-title').innerText = `JSON読込 (有効データ ${count}件)`;
+            document.getElementById('m-title').innerText = `JSON読込 (直近2年分: ${recentCount}件)`;
             b.style.gridTemplateColumns = '1fr';
+            const omittedCount = Math.max(0, totalCount - recentCount);
+
             b.innerHTML = `
+                <div style="font-size:11px; color:#aaa; background:#161616; padding:8px 10px; border-radius:6px; border:1px solid #2a2a2a; line-height:1.4;">
+                    ⚡ <b>スマホ軽量化フィルタ適用:</b><br>
+                    ${cutoffStr} 以降の明細（<b>${recentCount}件</b>）のみを取り込みます${omittedCount > 0 ? `（それ以前の過去データ ${omittedCount}件 はPC側GemWalletで保管されるためスマホからは除外）` : ''}。
+                </div>
                 <button class="card" onclick="executeImport('merge')" style="padding:14px; text-align:left; border-color:var(--blue);">
                     <div style="color:var(--blue); font-size:15px; margin-bottom:4px;">🔄 既存データと統合（マージ）</div>
-                    <div style="font-size:11px; color:#aaa; font-weight:normal;">明細・定期登録設定を判定して最新の状態に統合します（推奨）</div>
+                    <div style="font-size:11px; color:#aaa; font-weight:normal;">直近2年分の明細・定期登録設定を判定して最新の状態に統合します（推奨）</div>
                 </button>
                 <button class="card" onclick="executeImport('overwrite')" style="padding:14px; text-align:left;">
                     <div style="color:var(--red); font-size:15px; margin-bottom:4px;">⚠️ 完全に上書き（置換）</div>
-                    <div style="font-size:11px; color:#aaa; font-weight:normal;">現在のスマホ内のデータをすべて消去し、ファイルの内容に置き換えます</div>
+                    <div style="font-size:11px; color:#aaa; font-weight:normal;">現在のスマホ内のデータをすべて消去し、ファイルの直近2年分に置き換えます</div>
                 </button>
             `;
             m.style.display = 'flex';
@@ -1249,9 +1408,13 @@
             pendingImportData = null;
             document.getElementById('modal').style.display = 'none';
 
+            // 直近2年分（24ヶ月前の1日以降）の明細のみを抽出
+            const cutoffStr = getImportCutoffDateStr();
+            const incomingRecentDb = d.db.filter(i => i && i.date && i.date >= cutoffStr);
+
             if (type === 'overwrite') {
-                if (!confirm("本当に現在のデータをすべて消去して上書きしますか？")) return;
-                db = d.db;
+                if (!confirm(`本当に現在のデータを消去し、直近2年分（${cutoffStr}以降）のデータで上書きしますか？`)) return;
+                db = incomingRecentDb;
                 if (d.cats && Array.isArray(d.cats)) {
                     cats = [...new Set([...d.cats, '収入'])];
                 }
@@ -1265,16 +1428,19 @@
                     assetRecords = d.assetRecords;
                 }
                 processSubscriptions();
-                db.sort((a, b) => new Date(b.date) - new Date(a.date));
+                db = db.filter(i => i.date && i.date >= cutoffStr);
+                sortDbDesc();
                 save();
                 renderCats();
                 render();
-                alert(`${getActiveDb().length}件のデータを上書きしました。`);
+                alert(`直近2年分（${getActiveDb().length}件）のデータを上書きしました。`);
             } else {
+                // スマホ内に残っていた2年より前の古い明細もこの機会にスリム化
+                db = db.filter(i => i && i.date && i.date >= cutoffStr);
                 const existingMap = new Map(db.map(i => [i.id, i]));
                 let added = 0, updated = 0, deletedSync = 0;
 
-                d.db.forEach(item => {
+                incomingRecentDb.forEach(item => {
                     if (existingMap.has(item.id)) {
                         const existing = existingMap.get(item.id);
                         const inTime = item.updatedAt || 0;
@@ -1331,11 +1497,12 @@
                 }
 
                 const subAdded = processSubscriptions();
-                db.sort((a, b) => new Date(b.date) - new Date(a.date));
+                db = db.filter(i => i.date && i.date >= cutoffStr);
+                sortDbDesc();
                 save();
                 renderCats();
                 render();
-                alert(`統合完了：新規 ${added + subAdded}件 追加 / ${updated}件 更新 / ${deletedSync}件 削除反映`);
+                alert(`統合完了（直近2年分）：新規 ${added + subAdded}件 追加 / ${updated}件 更新 / ${deletedSync}件 削除反映`);
             }
         }
 

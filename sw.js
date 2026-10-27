@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gemmoney-cache-v8'; // v8に更新
+const CACHE_NAME = 'gemmoney-cache-v9'; // v9に更新
 const urlsToCache = [
   './index.html',
   './manifest.json',
