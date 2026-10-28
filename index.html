@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GemMoney2 v9</title>
+    <title>GemMoney2 v10</title>
 
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" href="#121212">
@@ -37,13 +37,29 @@
         
         .history-item { border-bottom: 1px solid #222; padding: 10px 0; font-size: 14px; }
         .memo-text { font-size: 11px; color: #888; margin-top: 3px; }
-        footer { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg); border-top: 1px solid #333; padding: 10px 10px; display: flex; justify-content: space-between; align-items: center; font-size: 10px; z-index: 50; }
+        footer { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg); border-top: 1px solid #333; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; font-size: 10px; z-index: 50; }
         #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 100; align-items: center; justify-content: center; }
 
         .numpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
         .numpad button { background: #2a2a2a; font-size: 20px; padding: 12px; border-radius: 8px; border: 1px solid #333; }
         .numpad button:active { background: #444; }
-        .amt-display { flex: 1; text-align: right; font-size: 20px; font-weight: bold; background: #111; color: var(--blue); border: 1px solid #444; outline: none; }
+        /* min-width: 0 を指定することで、編集時に✕ボタンが出ても右の更新ボタンを画面外へ押し出さない */
+        .amt-display { flex: 1; min-width: 0; width: 100%; text-align: right; font-size: 20px; font-weight: bold; background: #111; color: var(--blue); border: 1px solid #444; outline: none; }
+
+        /* 編集モード時の上部インジケーターバー */
+        .edit-banner {
+            display: none;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(252, 196, 25, 0.15);
+            border: 1px solid var(--yellow);
+            color: var(--yellow);
+            padding: 6px 10px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 12px;
+            font-weight: bold;
+        }
 
         /* ③④ クイックチップ共通バー（横スクロール・高さ固定でガタつき防止） */
         .chip-scroll-bar {
@@ -118,7 +134,7 @@
     <div id="toast" class="toast-notice"></div>
 
     <div class="flex justify-between items-center mb-4">
-        <h2>GemMoney2 v9</h2>
+        <h2>GemMoney2 v10</h2>
         <div class="flex">
             <button onclick="setView('day')" id="t-day" class="tab-btn">一日</button>
             <button onclick="setView('month')" id="t-month" class="tab-btn tab-active">月別</button>
@@ -139,10 +155,16 @@
             <div class="card" style="text-align:center"><small>BAL</small><div id="sum-bal">0</div></div>
         </div>
 
-        <div class="card mb-4">
+        <div class="card mb-4" id="input-card">
+            <!-- 編集モード時に表示されるバナー -->
+            <div id="edit-banner" class="edit-banner">
+                <span>✏️ 既存の項目を編集中</span>
+                <button type="button" onclick="cancelEdit()" style="background:#333; color:#fff; padding:4px 10px; font-size:11px; border-radius:4px;">✕ キャンセル</button>
+            </div>
+
             <div class="flex gap-2 mb-2">
-                <input type="date" id="in-date" style="flex:1" onchange="syncFromInput()">
-                <select id="in-cat" style="flex:1" onchange="onCatSelectChange()"></select>
+                <input type="date" id="in-date" style="flex:1; min-width:0;" onchange="syncFromInput()">
+                <select id="in-cat" style="flex:1; min-width:0;" onchange="onCatSelectChange()"></select>
             </div>
 
             <!-- ④ 直近3ヶ月の主要カテゴリ・ワンタップバー -->
@@ -152,11 +174,11 @@
             <div id="freq-item-bar" class="chip-scroll-bar"></div>
 
             <div class="flex gap-2 mb-2" style="margin-top:2px;">
-                <div style="position:relative; flex:1;">
+                <div style="position:relative; flex:1; min-width:0;">
                     <input type="text" id="in-title" placeholder="項目名(任意)" style="width:100%" autocomplete="off" oninput="handleSuggest(this.value)" onblur="setTimeout(()=>closeSuggest(), 200)">
                     <div id="suggest-box" class="suggest-list"></div>
                 </div>
-                <button type="button" id="btn-memo-toggle" onclick="toggleMemo()" class="btn-gray" style="padding:0 12px; font-size:16px;" title="メモを入力">💬</button>
+                <button type="button" id="btn-memo-toggle" onclick="toggleMemo()" class="btn-gray" style="padding:0 12px; font-size:16px; flex-shrink:0;" title="メモを入力">💬</button>
             </div>
 
             <div id="memo-wrap" class="mb-2" style="display:none;">
@@ -164,10 +186,10 @@
             </div>
 
             <div class="flex gap-2 items-center">
-                <div style="font-weight:bold; color:#777; font-size:18px;">¥</div>
+                <div style="font-weight:bold; color:#777; font-size:18px; flex-shrink:0;">¥</div>
                 <input type="text" id="in-amt" class="amt-display" placeholder="0" readonly inputmode="none" data-val="">
-                <button id="btn-cancel" onclick="cancelEdit()" class="btn-gray" style="display:none; padding:12px 15px; font-size:16px;">✕</button>
-                <button id="btn-add" onclick="add()" class="btn-blue" style="width:80px; font-size:16px; padding:12px;">ADD</button>
+                <button id="btn-cancel" onclick="cancelEdit()" class="btn-gray" style="display:none; padding:12px 12px; font-size:15px; flex-shrink:0;" title="編集キャンセル">✕</button>
+                <button id="btn-add" onclick="add()" class="btn-blue" style="width:80px; font-size:16px; padding:12px 0; flex-shrink:0; text-align:center;">ADD</button>
             </div>
             
             <div class="numpad">
@@ -216,14 +238,13 @@
     </div>
 
     <footer>
-        <div class="flex gap-1 items-center">
-            <button onclick="quickShareAll()" class="btn-blue" style="padding:8px 8px; font-size:11px;">📤共有</button>
-            <button onclick="openExportModal('json')" class="btn-gray" style="padding:8px 8px; font-size:11px;">JSON</button>
-            <button onclick="openExportModal('csv')" class="btn-gray" style="padding:8px 8px; font-size:11px;">CSV</button>
-            <label class="btn-gray" style="padding:8px 8px; font-size:11px; border-radius:6px; font-weight:bold; cursor:pointer;">取込<input type="file" accept=".json" style="display:none" onchange="importJSON(event)"></label>
+        <div class="flex gap-2 items-center">
+            <button onclick="openExportModal('json')" class="btn-blue" style="padding:8px 12px; font-size:11px;">💾 JSON保存</button>
+            <button onclick="openExportModal('csv')" class="btn-gray" style="padding:8px 10px; font-size:11px;">CSV出力</button>
+            <label class="btn-gray" style="padding:8px 10px; font-size:11px; border-radius:6px; font-weight:bold; cursor:pointer;">📂 取込<input type="file" accept=".json" style="display:none" onchange="importJSON(event)"></label>
         </div>
         <div class="flex gap-1 items-center">
-            <button onclick="openSubsModal()" class="btn-gray" style="padding:8px 8px; font-size:11px; color:var(--blue); border:1px solid #333;">🔄定期</button>
+            <button onclick="openSubsModal()" class="btn-gray" style="padding:8px 10px; font-size:11px; color:var(--blue); border:1px solid #333;">🔄定期</button>
             <button onclick="manageCats()" style="color:#777; font-size:11px; padding:6px;">カテゴリ</button>
         </div>
     </footer>
@@ -358,7 +379,6 @@
                     tx.onerror = () => reject(tx.error);
                 });
             } catch (err) {
-                // 万一IndexedDBが使えない環境でのフォールバック
                 try {
                     localStorage.setItem('gem_db', JSON.stringify(db));
                     localStorage.setItem('gem_cats', JSON.stringify(cats));
@@ -507,7 +527,6 @@
             for (let i = 0; i < db.length; i++) {
                 const item = db[i];
                 if (item.deleted || item.subId || !item.date) continue;
-                // dbは日付の降順（新しい順）に並んでいるため、cutoffStrより古くなったら即ループ終了
                 if (item.date < cutoffStr) break;
                 result.push(item);
             }
@@ -528,7 +547,6 @@
                 }
             }
 
-            // 直近3ヶ月で使われた頻度順（最大7件）＋ 足りない場合はデフォルト順で補完
             const picked = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
             for (const c of cats) {
                 if (picked.length >= 7) break;
@@ -557,13 +575,13 @@
             if (cats.includes(cat)) {
                 sel.value = cat;
                 renderQuickCats();
-                renderFreqShortcuts(); // カテゴリ選択に連動して頻出項目チップを即時切替
+                renderFreqShortcuts();
             }
         }
 
         function onCatSelectChange() {
             renderQuickCats();
-            renderFreqShortcuts(); // プルダウン変更時も即時切替
+            renderFreqShortcuts();
         }
 
         /* --- ③ 選択中カテゴリごとの直近頻出ショートカットチップ描画 --- */
@@ -574,10 +592,8 @@
             const currentCat = document.getElementById('in-cat').value;
             const recent = getRecentManualItems();
             
-            // 1. まず直近3ヶ月から選択中カテゴリの履歴を抽出
             let targetList = recent.filter(i => i.category === currentCat);
             
-            // 2. 直近3ヶ月で1件も使っていないカテゴリ（税金や特別費など）の場合は、スマホ内の過去履歴から最大200件まで探索して補完
             if (targetList.length === 0) {
                 for (let i = 0; i < db.length; i++) {
                     const item = db[i];
@@ -606,7 +622,6 @@
                 .sort((a, b) => (b.count - a.count) || b.lastDate.localeCompare(a.lastDate))
                 .slice(0, 6);
 
-            // 履歴が0件のカテゴリでもバーの高さを維持し、下のテンキーがズレて誤タップするのを防止
             if (topItems.length === 0) {
                 bar.innerHTML = `<span style="font-size:10px; color:#555; padding-left:4px;">⚡「${currentCat}」の頻出項目はまだありません</span>`;
                 return;
@@ -777,6 +792,8 @@
             btnAdd.style.color = "#111";
 
             document.getElementById('btn-cancel').style.display = 'block';
+            document.getElementById('edit-banner').style.display = 'flex';
+            document.getElementById('input-card').style.borderColor = 'var(--yellow)';
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
@@ -797,6 +814,8 @@
             btnAdd.style.color = "white";
 
             document.getElementById('btn-cancel').style.display = 'none';
+            document.getElementById('edit-banner').style.display = 'none';
+            document.getElementById('input-card').style.borderColor = '#333';
             
             if (mode === 'day') {
                 const y = focus.getFullYear(), m = String(focus.getMonth() + 1).padStart(2, '0'), d = String(focus.getDate()).padStart(2, '0');
@@ -867,7 +886,6 @@
                 i.category === '収入' ? si+=i.amount : so+=i.amount;
                 if(mode==='month' && last !== i.date) { h += `<div style="font-size:10px; color:#555; margin-top:10px; border-bottom:1px solid #222">${i.date}</div>`; last = i.date; }
                 
-                // ⑩ カテゴリ色をグラフと統一してバッジ表示
                 const catCol = getCatColor(i.category);
 
                 h += `
@@ -1236,40 +1254,33 @@
         }
         function jumpToYear(y) { focus.setFullYear(y); render(); document.getElementById('modal').style.display='none'; }
 
-        /* --- ワンタップ共有 & エクスポート --- */
+        /* --- ファイル出力（JSON / CSV） --- */
         let exportFormat = 'json';
-
-        function quickShareAll() {
-            runExport('all', 'share', 'json');
-        }
 
         function openExportModal(format) {
             exportFormat = format;
             const m = document.getElementById('modal');
             const b = document.getElementById('m-body');
-            document.getElementById('m-title').innerText = `${format.toUpperCase()} 出力・共有`;
+            document.getElementById('m-title').innerText = `💾 ${format.toUpperCase()} ファイル保存`;
     
             b.style.gridTemplateColumns = '1fr';
             const ranges = [
-                { key: 'all', label: '全期間（推奨）' },
-                { key: 'year', label: '今年のみ' },
-                { key: '3months', label: '直近3ヶ月' },
-                { key: 'month', label: '今月のみ' }
+                { key: 'all', label: '全期間（推奨）', primary: true },
+                { key: 'year', label: '今年のみ', primary: false },
+                { key: '3months', label: '直近3ヶ月', primary: false },
+                { key: 'month', label: '今月のみ', primary: false }
             ];
 
             b.innerHTML = ranges.map(r => `
-                <div class="export-row">
-                    <div style="font-size:13px; font-weight:bold; color:var(--text);">${r.label}</div>
-                    <div class="flex gap-2">
-                        <button class="btn-blue" onclick="runExport('${r.key}', 'share')" style="flex:1; padding:10px;">📤 ワンタップ共有</button>
-                        <button class="btn-gray" onclick="runExport('${r.key}', 'download')" style="flex:1; padding:10px; color:#fff;">💾 ファイル保存</button>
-                    </div>
-                </div>
+                <button class="${r.primary ? 'btn-blue' : 'btn-gray'}" onclick="runExport('${r.key}')" style="width:100%; padding:14px; font-size:14px; color:#fff; display:flex; justify-content:space-between; align-items:center;">
+                    <span>${r.label}</span>
+                    <span style="font-size:12px; opacity:0.85;">⬇️ 保存</span>
+                </button>
             `).join('');
             m.style.display = 'flex';
         }
 
-        async function runExport(rangeType, action = 'download', overrideFormat = null) {
+        function runExport(rangeType, overrideFormat = null) {
             const fmt = overrideFormat || exportFormat;
             const now = new Date();
             const sourceList = (fmt === 'json') ? db : getActiveDb();
@@ -1318,34 +1329,6 @@
             }
 
             document.getElementById('modal').style.display = 'none';
-
-            if (action === 'share') {
-                const file = new File([blob], filename, { type: mimeType });
-                if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                    try {
-                        await navigator.share({
-                            title: 'GemMoney データ共有',
-                            files: [file]
-                        });
-                        return;
-                    } catch (err) {
-                        if (err.name === 'AbortError') return;
-                    }
-                } else if (navigator.share) {
-                    try {
-                        const fileFallback = new File([blob], filename, { type: 'text/plain' });
-                        if (navigator.canShare && navigator.canShare({ files: [fileFallback] })) {
-                            await navigator.share({
-                                title: 'GemMoney データ共有',
-                                files: [fileFallback]
-                            });
-                            return;
-                        }
-                    } catch (err) {
-                        if (err.name === 'AbortError') return;
-                    }
-                }
-            }
 
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
@@ -1408,7 +1391,6 @@
             pendingImportData = null;
             document.getElementById('modal').style.display = 'none';
 
-            // 直近2年分（24ヶ月前の1日以降）の明細のみを抽出
             const cutoffStr = getImportCutoffDateStr();
             const incomingRecentDb = d.db.filter(i => i && i.date && i.date >= cutoffStr);
 
@@ -1435,7 +1417,6 @@
                 render();
                 alert(`直近2年分（${getActiveDb().length}件）のデータを上書きしました。`);
             } else {
-                // スマホ内に残っていた2年より前の古い明細もこの機会にスリム化
                 db = db.filter(i => i && i.date && i.date >= cutoffStr);
                 const existingMap = new Map(db.map(i => [i.id, i]));
                 let added = 0, updated = 0, deletedSync = 0;
