@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GemMoney2 v10</title>
+    <title>GemMoney2 v11</title>
 
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" href="#121212">
@@ -134,7 +134,7 @@
     <div id="toast" class="toast-notice"></div>
 
     <div class="flex justify-between items-center mb-4">
-        <h2>GemMoney2 v10</h2>
+        <h2>GemMoney2 v11</h2>
         <div class="flex">
             <button onclick="setView('day')" id="t-day" class="tab-btn">一日</button>
             <button onclick="setView('month')" id="t-month" class="tab-btn tab-active">月別</button>
@@ -272,6 +272,7 @@
         let db = [];
         let cats = DEFAULT_CATS;
         let subs = [];
+        let annualSubs = [];   // GemWalletの年払い・期別固定費との互換保持用
         let budgets = {};      // GemWalletとの互換保持用
         let assetRecords = []; // GemAssetManagerデータ保持用
 
@@ -335,6 +336,7 @@
                     db = Array.isArray(data.db) ? data.db : [];
                     cats = Array.isArray(data.cats) && data.cats.length > 0 ? data.cats : DEFAULT_CATS;
                     subs = Array.isArray(data.subs) ? data.subs : [];
+                    annualSubs = Array.isArray(data.annualSubs) ? data.annualSubs : [];
                     budgets = (data.budgets && typeof data.budgets === 'object') ? data.budgets : {};
                     assetRecords = Array.isArray(data.assetRecords) ? data.assetRecords : [];
                     return;
@@ -347,16 +349,18 @@
             const lsDb = localStorage.getItem('gem_db');
             const lsCats = localStorage.getItem('gem_cats');
             const lsSubs = localStorage.getItem('gem_subs');
+            const lsAnnualSubs = localStorage.getItem('gem_annual_subs');
             const lsBudgets = localStorage.getItem('gem_budgets');
             const lsAssets = localStorage.getItem('gem_assets');
 
             if (lsDb) { try { db = JSON.parse(lsDb) || []; } catch(e) {} }
             if (lsCats) { try { cats = JSON.parse(lsCats) || DEFAULT_CATS; } catch(e) {} }
             if (lsSubs) { try { subs = JSON.parse(lsSubs) || []; } catch(e) {} }
+            if (lsAnnualSubs) { try { annualSubs = JSON.parse(lsAnnualSubs) || []; } catch(e) {} }
             if (lsBudgets) { try { budgets = JSON.parse(lsBudgets) || {}; } catch(e) {} }
             if (lsAssets) { try { assetRecords = JSON.parse(lsAssets) || []; } catch(e) {} }
 
-            if (lsDb || lsCats || lsSubs) {
+            if (lsDb || lsCats || lsSubs || lsAnnualSubs) {
                 await save();
             }
         }
@@ -371,6 +375,7 @@
                         db: db,
                         cats: cats,
                         subs: subs,
+                        annualSubs: annualSubs,
                         budgets: budgets,
                         assetRecords: assetRecords,
                         updatedAt: Date.now()
@@ -383,6 +388,7 @@
                     localStorage.setItem('gem_db', JSON.stringify(db));
                     localStorage.setItem('gem_cats', JSON.stringify(cats));
                     localStorage.setItem('gem_subs', JSON.stringify(subs));
+                    localStorage.setItem('gem_annual_subs', JSON.stringify(annualSubs));
                     localStorage.setItem('gem_budgets', JSON.stringify(budgets));
                     localStorage.setItem('gem_assets', JSON.stringify(assetRecords));
                 } catch (e) {}
@@ -410,6 +416,31 @@
             return (baseSubId * 10000) + ((year % 100) * 100) + month;
         }
 
+        function getUnpaidAnnualTitlesForCurrentMonth() {
+            const now = new Date();
+            const curY = now.getFullYear();
+            const curM = now.getMonth() + 1;
+            const ymPrefix = `${curY}-${String(curM).padStart(2, '0')}`;
+            const norm = s => (s || '').normalize('NFKC').toLowerCase().replace(/[\s ・\-_ー()（）「」『』、。,.]/g, '');
+
+            const dueList = annualSubs.filter(a => !a.deleted && a.active !== false && Array.isArray(a.months) && a.months.includes(curM));
+            if (dueList.length === 0) return [];
+
+            const monthItems = db.filter(i => !i.deleted && i.date && i.date.startsWith(ymPrefix));
+            const unpaid = [];
+            dueList.forEach(ann => {
+                const key = norm(ann.title);
+                if (!key) return;
+                const matched = monthItems.some(i => {
+                    const tKey = norm(i.title);
+                    const mKey = norm(i.memo);
+                    return (tKey && (tKey.includes(key) || key.includes(tKey))) || (mKey && mKey.includes(key));
+                });
+                if (!matched) unpaid.push(ann.title);
+            });
+            return unpaid;
+        }
+
         async function init() {
             document.getElementById('in-date').valueAsDate = new Date();
             await loadStateFromStorage();
@@ -417,8 +448,11 @@
             const addedCount = processSubscriptions();
             renderCats();
             render();
+            const unpaidAnnuals = getUnpaidAnnualTitlesForCurrentMonth();
             if (addedCount > 0) {
                 showToast(`🔄 定期項目を ${addedCount}件 自動登録しました`);
+            } else if (unpaidAnnuals.length > 0) {
+                showToast(`🔔 今月の年払予定(未入力): ${unpaidAnnuals.join('・')}`);
             }
         }
 
@@ -1314,6 +1348,7 @@
                     range: rangeType,
                     cats: cats,
                     subs: subs,
+                    annualSubs: annualSubs, // GemWalletの年払い固定費との互換保持
                     budgets: budgets, // GemWalletとの互換保持
                     assetRecords: assetRecords, // GemAssetManagerとの互換保持
                     db: filteredDb
@@ -1403,6 +1438,9 @@
                 if (d.subs && Array.isArray(d.subs)) {
                     subs = d.subs;
                 }
+                if (d.annualSubs && Array.isArray(d.annualSubs)) {
+                    annualSubs = d.annualSubs;
+                }
                 if (d.budgets && typeof d.budgets === 'object') {
                     budgets = { ...budgets, ...d.budgets };
                 }
@@ -1463,6 +1501,22 @@
                         } else {
                             subs.push(inSub);
                             subMap.set(inSub.id, inSub);
+                        }
+                    });
+                }
+
+                if (d.annualSubs && Array.isArray(d.annualSubs)) {
+                    const annMap = new Map(annualSubs.map(a => [a.id, a]));
+                    d.annualSubs.forEach(inAnn => {
+                        if (!inAnn || !inAnn.id) return;
+                        if (annMap.has(inAnn.id)) {
+                            const exAnn = annMap.get(inAnn.id);
+                            if ((inAnn.updatedAt || 0) >= (exAnn.updatedAt || 0)) {
+                                Object.assign(exAnn, inAnn);
+                            }
+                        } else {
+                            annualSubs.push(inAnn);
+                            annMap.set(inAnn.id, inAnn);
                         }
                     });
                 }
