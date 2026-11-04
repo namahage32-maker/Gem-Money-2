@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GemMoney2 v11</title>
+    <title>GemMoney2 v12</title>
 
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" href="#121212">
@@ -134,7 +134,7 @@
     <div id="toast" class="toast-notice"></div>
 
     <div class="flex justify-between items-center mb-4">
-        <h2>GemMoney2 v11</h2>
+        <h2>GemMoney2 v12</h2>
         <div class="flex">
             <button onclick="setView('day')" id="t-day" class="tab-btn">一日</button>
             <button onclick="setView('month')" id="t-month" class="tab-btn tab-active">月別</button>
@@ -402,13 +402,49 @@
             setTimeout(() => { t.style.display = 'none'; }, 3500);
         }
 
-        // ⑩ カテゴリごとの固有カラーを取得（統計グラフの色と完全一致）
+        // HTML表示崩れ防止用エスケープ関数
+        function escapeHtml(str) {
+            return String(str ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        // onclick内のシングルクォート文字列破壊を防止するエスケープ関数
+        function escapeJsStr(str) {
+            return escapeHtml(String(str ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r?\n/g, ' '));
+        }
+
+        // GemWalletと完全共通の固定カラーマップ＋新規カテゴリ用名前ハッシュ色決定
+        const FIXED_CAT_COLORS = {
+            "食費": "#ff4b4b",
+            "交通費": "#339af0",
+            "車": "#339af0",
+            "生活雑費": "#fcc419",
+            "育児": "#20c997",
+            "税金": "#be4bdb",
+            "ふるさと納税": "#ff922b",
+            "緊急支出": "#94d82d",
+            "保険": "#f06595",
+            "遊興費": "#5c7cfa",
+            "業務費": "#e8590c",
+            "投資": "#22b8cf",
+            "負債": "#d6336c"
+        };
+
+        // ⑩ カテゴリごとの固有カラーを取得（並び順に依存せずカテゴリ名から一意に決定）
         function getCatColor(cat) {
+            if (!cat) return '#999999';
             if (cat === '収入') return '#4dabf7';
-            const expCats = cats.filter(c => c !== '収入');
-            const idx = expCats.indexOf(cat);
-            if (idx === -1) return '#999999';
-            return COLOR_PALETTE[idx % COLOR_PALETTE.length];
+            if (FIXED_CAT_COLORS[cat]) return FIXED_CAT_COLORS[cat];
+            let hash = 0;
+            for (let i = 0; i < cat.length; i++) {
+                hash = ((hash << 5) - hash) + cat.charCodeAt(i);
+                hash |= 0;
+            }
+            return COLOR_PALETTE[Math.abs(hash) % COLOR_PALETTE.length];
         }
 
         function makeSubEntryId(subId, year, month) {
@@ -596,9 +632,9 @@
                     ? `border-color:${col}; background:${col}28; color:#fff; font-weight:bold;`
                     : ``;
                 return `
-                    <div class="quick-chip" style="${style}" onclick="selectQuickCat('${c.replace(/'/g, "\\'")}')">
+                    <div class="quick-chip" style="${style}" onclick="selectQuickCat('${escapeJsStr(c)}')">
                         <span class="cat-chip-dot" style="background:${col};"></span>
-                        <span>${c}</span>
+                        <span>${escapeHtml(c)}</span>
                     </div>
                 `;
             }).join('');
@@ -657,7 +693,7 @@
                 .slice(0, 6);
 
             if (topItems.length === 0) {
-                bar.innerHTML = `<span style="font-size:10px; color:#555; padding-left:4px;">⚡「${currentCat}」の頻出項目はまだありません</span>`;
+                bar.innerHTML = `<span style="font-size:10px; color:#555; padding-left:4px;">⚡「${escapeHtml(currentCat)}」の頻出項目はまだありません</span>`;
                 return;
             }
 
@@ -670,9 +706,9 @@
                     ? `border-color:${col}; background:${col}28; color:#fff; font-weight:bold;`
                     : ``;
                 return `
-                    <div class="quick-chip" style="${style}" onclick="applyFreqShortcut('${item.title.replace(/'/g, "\\'")}', '${item.category.replace(/'/g, "\\'")}')">
+                    <div class="quick-chip" style="${style}" onclick="applyFreqShortcut('${escapeJsStr(item.title)}', '${escapeJsStr(item.category)}')">
                         <span style="color:${col}; font-weight:bold;">⚡</span>
-                        <span>${item.title}</span>
+                        <span>${escapeHtml(item.title)}</span>
                     </div>
                 `;
             }).join('');
@@ -691,11 +727,11 @@
         function renderCats() {
             const sel = document.getElementById('in-cat');
             const prevVal = sel.value;
-            const h = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+            const h = cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
             sel.innerHTML = h;
             if (prevVal && cats.includes(prevVal)) sel.value = prevVal;
 
-            document.getElementById('stat-cat').innerHTML = cats.filter(c=>c!=='収入').map(c => `<option value="${c}">${c}</option>`).join('');
+            document.getElementById('stat-cat').innerHTML = cats.filter(c=>c!=='収入').map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
             renderQuickCats();
             renderFreqShortcuts();
         }
@@ -764,9 +800,9 @@
             if (matches.length > 0) {
                 box.innerHTML = matches.map(m => {
                     const col = getCatColor(m.category);
-                    return `<div class="suggest-item" onclick="selectSuggest('${m.title.replace(/'/g, "\\'")}', '${m.category.replace(/'/g, "\\'")}')">
-                        <span>${m.title}</span>
-                        <span class="suggest-cat" style="color:${col}; background:${col}22; border:1px solid ${col}66;">${m.category}</span>
+                    return `<div class="suggest-item" onclick="selectSuggest('${escapeJsStr(m.title)}', '${escapeJsStr(m.category)}')">
+                        <span>${escapeHtml(m.title)}</span>
+                        <span class="suggest-cat" style="color:${col}; background:${col}22; border:1px solid ${col}66;">${escapeHtml(m.category)}</span>
                     </div>`;
                 }).join('');
                 box.style.display = 'block';
@@ -926,10 +962,10 @@
                 <div class="history-item flex justify-between items-center">
                     <div style="flex:1; padding-right:8px;">
                         <div>
-                            <span class="history-cat-badge" style="color:${catCol}; background:${catCol}20; border:1px solid ${catCol}55;">${i.category}</span>${i.subId ? '<span class="sub-badge">🔄定期</span>' : ''}
+                            <span class="history-cat-badge" style="color:${catCol}; background:${catCol}20; border:1px solid ${catCol}55;">${escapeHtml(i.category)}</span>${i.subId ? '<span class="sub-badge">🔄定期</span>' : ''}
                         </div>
-                        <div style="margin-top:1px;">${i.title}</div>
-                        ${i.memo ? `<div class="memo-text">💬 ${i.memo}</div>` : ''}
+                        <div style="margin-top:1px;">${escapeHtml(i.title)}</div>
+                        ${i.memo ? `<div class="memo-text">💬 ${escapeHtml(i.memo)}</div>` : ''}
                     </div>
                     <div class="flex items-center gap-2">
                         <b class="${i.category==='収入'?'income':'expense'}">¥${i.amount.toLocaleString()}</b>
@@ -1017,7 +1053,7 @@
             }
             dayOptions += `<option value="last" ${formData.day === 'last' ? 'selected' : ''}>毎月 月末</option>`;
 
-            const catOptions = cats.map(c => `<option value="${c}" ${formData.category === c ? 'selected' : ''}>${c}</option>`).join('');
+            const catOptions = cats.map(c => `<option value="${escapeHtml(c)}" ${formData.category === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
 
             const monthlyTotal = activeSubs
                 .filter(s => s.active !== false && s.category !== '収入')
@@ -1037,10 +1073,10 @@
                         <div class="flex justify-between items-center">
                             <div>
                                 <span style="font-size:11px; color:var(--blue); font-weight:bold;">毎月${dayLabel}</span>
-                                <span class="history-cat-badge" style="color:${catCol}; background:${catCol}20; border:1px solid ${catCol}55; margin-left:4px;">${s.category}</span>
-                                <span style="font-size:10px; color:#666; margin-left:4px;">(${periodStr})</span>
-                                <div style="font-size:14px; font-weight:bold; margin-top:2px;">${s.title}</div>
-                                ${s.memo ? `<div style="font-size:11px; color:#888;">💬 ${s.memo}</div>` : ''}
+                                <span class="history-cat-badge" style="color:${catCol}; background:${catCol}20; border:1px solid ${catCol}55; margin-left:4px;">${escapeHtml(s.category)}</span>
+                                <span style="font-size:10px; color:#666; margin-left:4px;">(${escapeHtml(periodStr)})</span>
+                                <div style="font-size:14px; font-weight:bold; margin-top:2px;">${escapeHtml(s.title)}</div>
+                                ${s.memo ? `<div style="font-size:11px; color:#888;">💬 ${escapeHtml(s.memo)}</div>` : ''}
                             </div>
                             <div style="text-align:right;">
                                 <div class="${s.category === '収入' ? 'income' : 'expense'}" style="font-weight:bold; font-size:14px;">¥${s.amount.toLocaleString()}</div>
@@ -1299,10 +1335,10 @@
     
             b.style.gridTemplateColumns = '1fr';
             const ranges = [
-                { key: 'all', label: '全期間（推奨）', primary: true },
+                { key: '3months', label: '直近3ヶ月（推奨）', primary: true },
+                { key: 'month', label: '今月のみ', primary: false },
                 { key: 'year', label: '今年のみ', primary: false },
-                { key: '3months', label: '直近3ヶ月', primary: false },
-                { key: 'month', label: '今月のみ', primary: false }
+                { key: 'all', label: '全期間（スマホ内保持分すべて）', primary: false }
             ];
 
             b.innerHTML = ranges.map(r => `
