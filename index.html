@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GemMoney2 v12</title>
+    <title>GemMoney2 v13</title>
 
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" href="#121212">
@@ -134,7 +134,7 @@
     <div id="toast" class="toast-notice"></div>
 
     <div class="flex justify-between items-center mb-4">
-        <h2>GemMoney2 v12</h2>
+        <h2>GemMoney2 v13</h2>
         <div class="flex">
             <button onclick="setView('day')" id="t-day" class="tab-btn">一日</button>
             <button onclick="setView('month')" id="t-month" class="tab-btn tab-active">月別</button>
@@ -275,6 +275,8 @@
         let annualSubs = [];   // GemWalletの年払い・期別固定費との互換保持用
         let budgets = {};      // GemWalletとの互換保持用
         let assetRecords = []; // GemAssetManagerデータ保持用
+        let rebTargets = null; // GemAssetManager目標配分保持用
+        let simParams = null;  // GemAssetManagerシミュレーション設定保持用
 
         let mode = 'month', focus = new Date();
         let currentAmt = "";
@@ -339,6 +341,8 @@
                     annualSubs = Array.isArray(data.annualSubs) ? data.annualSubs : [];
                     budgets = (data.budgets && typeof data.budgets === 'object') ? data.budgets : {};
                     assetRecords = Array.isArray(data.assetRecords) ? data.assetRecords : [];
+                    rebTargets = data.rebTargets || null;
+                    simParams = data.simParams || null;
                     return;
                 }
             } catch (err) {
@@ -352,6 +356,8 @@
             const lsAnnualSubs = localStorage.getItem('gem_annual_subs');
             const lsBudgets = localStorage.getItem('gem_budgets');
             const lsAssets = localStorage.getItem('gem_assets');
+            const lsReb = localStorage.getItem('gem_reb_targets');
+            const lsSim = localStorage.getItem('gem_sim_params');
 
             if (lsDb) { try { db = JSON.parse(lsDb) || []; } catch(e) {} }
             if (lsCats) { try { cats = JSON.parse(lsCats) || DEFAULT_CATS; } catch(e) {} }
@@ -359,6 +365,8 @@
             if (lsAnnualSubs) { try { annualSubs = JSON.parse(lsAnnualSubs) || []; } catch(e) {} }
             if (lsBudgets) { try { budgets = JSON.parse(lsBudgets) || {}; } catch(e) {} }
             if (lsAssets) { try { assetRecords = JSON.parse(lsAssets) || []; } catch(e) {} }
+            if (lsReb) { try { rebTargets = JSON.parse(lsReb) || null; } catch(e) {} }
+            if (lsSim) { try { simParams = JSON.parse(lsSim) || null; } catch(e) {} }
 
             if (lsDb || lsCats || lsSubs || lsAnnualSubs) {
                 await save();
@@ -378,6 +386,8 @@
                         annualSubs: annualSubs,
                         budgets: budgets,
                         assetRecords: assetRecords,
+                        rebTargets: rebTargets,
+                        simParams: simParams,
                         updatedAt: Date.now()
                     }, 'main');
                     tx.oncomplete = () => resolve();
@@ -391,6 +401,8 @@
                     localStorage.setItem('gem_annual_subs', JSON.stringify(annualSubs));
                     localStorage.setItem('gem_budgets', JSON.stringify(budgets));
                     localStorage.setItem('gem_assets', JSON.stringify(assetRecords));
+                    if (rebTargets) localStorage.setItem('gem_reb_targets', JSON.stringify(rebTargets));
+                    if (simParams) localStorage.setItem('gem_sim_params', JSON.stringify(simParams));
                 } catch (e) {}
             }
         }
@@ -577,6 +589,13 @@
                         m = 1;
                         y++;
                     }
+                }
+
+                const curYmStr = `${curY}-${String(curM).padStart(2, '0')}`;
+                if (sub.endMonth && sub.endMonth < curYmStr && sub.active !== false) {
+                    sub.active = false;
+                    sub.updatedAt = Date.now();
+                    modified = true;
                 }
             });
 
@@ -1037,12 +1056,12 @@
             const nextMonthStr = getYearMonthStr(new Date(now.getFullYear(), now.getMonth() + 1, 1));
 
             let formData = {
-                title: '', amount: '', category: cats[0] || '食費', day: '1', memo: '', startMonth: thisMonthStr
+                title: '', amount: '', category: cats[0] || '食費', day: '1', memo: '', startMonth: thisMonthStr, endMonth: ''
             };
 
             if (editingSubId) {
                 const target = subs.find(s => s.id === editingSubId);
-                if (target) formData = { ...target };
+                if (target) formData = { ...formData, ...target, endMonth: target.endMonth || '' };
             } else if (prefill) {
                 formData = { ...formData, ...prefill };
             }
@@ -1056,7 +1075,7 @@
             const catOptions = cats.map(c => `<option value="${escapeHtml(c)}" ${formData.category === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
 
             const monthlyTotal = activeSubs
-                .filter(s => s.active !== false && s.category !== '収入')
+                .filter(s => s.active !== false && (!s.endMonth || s.endMonth >= thisMonthStr) && s.category !== '収入')
                 .reduce((sum, s) => sum + s.amount, 0);
 
             let listHtml = '';
@@ -1065,16 +1084,17 @@
             } else {
                 listHtml = activeSubs.map(s => {
                     const dayLabel = s.day === 'last' ? '月末' : `${s.day}日`;
+                    const isEnded = Boolean(s.endMonth && s.endMonth < thisMonthStr);
                     const isPaused = s.active === false;
                     const catCol = getCatColor(s.category);
-                    const periodStr = s.endMonth ? `${s.startMonth}〜${s.endMonth}` : `${s.startMonth}〜`;
+                    const periodStr = s.endMonth ? `${s.startMonth}〜${s.endMonth}` : `${s.startMonth}〜継続`;
                     return `
-                    <div class="export-row" style="opacity:${isPaused ? '0.5' : '1'};">
+                    <div class="export-row" style="opacity:${(isPaused || isEnded) ? '0.5' : '1'};">
                         <div class="flex justify-between items-center">
                             <div>
                                 <span style="font-size:11px; color:var(--blue); font-weight:bold;">毎月${dayLabel}</span>
                                 <span class="history-cat-badge" style="color:${catCol}; background:${catCol}20; border:1px solid ${catCol}55; margin-left:4px;">${escapeHtml(s.category)}</span>
-                                <span style="font-size:10px; color:#666; margin-left:4px;">(${escapeHtml(periodStr)})</span>
+                                <span style="font-size:10px; color:#888; margin-left:4px;">(${escapeHtml(periodStr)}${isEnded ? '・満了' : ''})</span>
                                 <div style="font-size:14px; font-weight:bold; margin-top:2px;">${escapeHtml(s.title)}</div>
                                 ${s.memo ? `<div style="font-size:11px; color:#888;">💬 ${escapeHtml(s.memo)}</div>` : ''}
                             </div>
@@ -1106,12 +1126,19 @@
                     </div>
                     <input type="text" id="sub-memo" placeholder="メモ・注釈(任意)" value="${(formData.memo || '').replace(/"/g, '&quot;')}" style="font-size:12px;">
                     <div class="flex justify-between items-center" style="margin-top:2px;">
-                        <span style="font-size:11px; color:#aaa;">自動登録の開始月:</span>
+                        <span style="font-size:11px; color:#aaa;">開始月:</span>
                         <input type="month" id="sub-start" value="${formData.startMonth}" style="padding:4px 8px; font-size:12px;">
                     </div>
-                    <div class="flex gap-1" style="justify-content:flex-end; margin-bottom:4px;">
+                    <div class="flex gap-1" style="justify-content:flex-end;">
                         <button type="button" onclick="document.getElementById('sub-start').value='${thisMonthStr}'" class="btn-gray" style="font-size:10px; padding:3px 8px;">今月から</button>
                         <button type="button" onclick="document.getElementById('sub-start').value='${nextMonthStr}'" class="btn-gray" style="font-size:10px; padding:3px 8px;">来月から(今月入力済)</button>
+                    </div>
+                    <div class="flex justify-between items-center" style="margin-top:2px; margin-bottom:4px;">
+                        <span style="font-size:11px; color:#aaa;">終了月(任意):</span>
+                        <div class="flex gap-1 items-center">
+                            <input type="month" id="sub-end" value="${formData.endMonth || ''}" style="padding:4px 8px; font-size:12px;">
+                            <button type="button" onclick="document.getElementById('sub-end').value=''" class="btn-gray" style="font-size:10px; padding:5px 8px;">クリア</button>
+                        </div>
                     </div>
                     <div class="flex gap-2">
                         ${editingSubId ? `<button onclick="openSubsModal()" class="btn-gray" style="flex:1; padding:10px;">キャンセル</button>` : ''}
@@ -1137,46 +1164,90 @@
             const amount = parseInt(document.getElementById('sub-amt').value, 10);
             const memo = document.getElementById('sub-memo').value.trim();
             const startMonth = document.getElementById('sub-start').value;
+            const endMonth = document.getElementById('sub-end').value;
 
             if (!title || isNaN(amount) || amount <= 0 || !startMonth) {
                 alert("項目名、正しい金額、開始月を入力してください。");
                 return;
             }
+            if (endMonth && endMonth < startMonth) {
+                alert("終了月は開始月と同じか、それより後の年月を指定してください。");
+                return;
+            }
+
+            const curYmStr = getYearMonthStr(new Date());
+            const isAlreadyEnded = Boolean(endMonth && endMonth < curYmStr);
+            let targetSubId = editingSubId;
+            let cleanedCount = 0;
 
             if (editingSubId) {
                 const idx = subs.findIndex(s => s.id === editingSubId);
                 if (idx !== -1) {
+                    const nextActive = isAlreadyEnded ? false : (subs[idx].active === false && !endMonth ? true : subs[idx].active !== false);
                     subs[idx] = {
                         ...subs[idx],
                         title, amount, category, day, startMonth,
+                        active: nextActive,
                         updatedAt: Date.now()
                     };
+                    if (endMonth) subs[idx].endMonth = endMonth; else delete subs[idx].endMonth;
                     if (memo) subs[idx].memo = memo; else delete subs[idx].memo;
                 }
             } else {
                 const compactId = Math.floor((Date.now() - 1700000000000) / 100) + Math.floor(Math.random() * 100);
+                targetSubId = compactId;
                 const newSub = {
                     id: compactId,
                     title, amount, category, day, startMonth,
-                    active: true,
+                    active: !isAlreadyEnded,
                     updatedAt: Date.now()
                 };
+                if (endMonth) newSub.endMonth = endMonth;
                 if (memo) newSub.memo = memo;
                 subs.push(newSub);
+            }
+
+            if (targetSubId) {
+                const nowTs = Date.now();
+                db.forEach(item => {
+                    if (item.subId === targetSubId && !item.deleted && item.date) {
+                        const ym = item.date.substring(0, 7);
+                        if (ym < startMonth || (endMonth && ym > endMonth)) {
+                            item.deleted = true;
+                            item.updatedAt = nowTs;
+                            cleanedCount++;
+                        } else if (editingSubId) {
+                            const [yStr, mStr] = ym.split('-');
+                            const lastDay = new Date(parseInt(yStr, 10), parseInt(mStr, 10), 0).getDate();
+                            const tDay = (day === 'last' || parseInt(day, 10) >= lastDay) ? lastDay : parseInt(day, 10);
+                            item.date = `${ym}-${String(tDay).padStart(2, '0')}`;
+                            item.title = title;
+                            item.amount = amount;
+                            item.category = category;
+                            if (memo) item.memo = memo; else delete item.memo;
+                            item.updatedAt = nowTs;
+                        }
+                    }
+                });
             }
 
             const added = processSubscriptions();
             save();
             render();
             openSubsModal();
-            if (added > 0) {
-                showToast(`🔄 ${added}件の定期明細を自動反映しました`);
+            if (added > 0 || cleanedCount > 0) {
+                showToast(`🔄 定期反映 (追加:${added}件 / 期間外整理:${cleanedCount}件)`);
             }
         }
 
         function toggleSubActive(id) {
             const sub = subs.find(s => s.id === id);
             if (!sub) return;
+            const curYmStr = getYearMonthStr(new Date());
+            if (sub.active === false && sub.endMonth && sub.endMonth < curYmStr) {
+                if (!confirm(`過去の終了月(${sub.endMonth})が設定されています。終了月をクリアして再開しますか？`)) return;
+                delete sub.endMonth;
+            }
             sub.active = (sub.active === false) ? true : false;
             sub.updatedAt = Date.now();
             if (sub.active) processSubscriptions();
@@ -1384,9 +1455,12 @@
                     range: rangeType,
                     cats: cats,
                     subs: subs,
-                    annualSubs: annualSubs, // GemWalletの年払い固定費との互換保持
-                    budgets: budgets, // GemWalletとの互換保持
-                    assetRecords: assetRecords, // GemAssetManagerとの互換保持
+                    annualSubs: annualSubs,
+                    budgets: budgets,
+                    assetRecords: assetRecords,
+                    records: assetRecords,
+                    rebTargets: rebTargets,
+                    simParams: simParams,
                     db: filteredDb
                 };
                 mimeType = 'application/json';
@@ -1415,7 +1489,10 @@
             r.onload = (ev) => {
                 try {
                     const d = JSON.parse(ev.target.result);
-                    if (d.db && Array.isArray(d.db)) {
+                    const hasDb = d && Array.isArray(d.db);
+                    const hasAssets = d && (Array.isArray(d.assetRecords) || Array.isArray(d.records));
+                    if (hasDb || hasAssets) {
+                        if (!hasDb) d.db = [];
                         pendingImportData = d;
                         const cutoffStr = getImportCutoffDateStr();
                         const totalActive = d.db.filter(i => !i.deleted).length;
@@ -1480,9 +1557,16 @@
                 if (d.budgets && typeof d.budgets === 'object') {
                     budgets = { ...budgets, ...d.budgets };
                 }
-                if (d.assetRecords && Array.isArray(d.assetRecords)) {
-                    assetRecords = d.assetRecords;
+                const incomingAssets = Array.isArray(d.records) && d.records.length > 0
+                    ? d.records
+                    : (Array.isArray(d.assetRecords) ? d.assetRecords : null);
+                if (incomingAssets) {
+                    const assetMap = new Map(assetRecords.map(r => [r.month, r]));
+                    incomingAssets.forEach(r => { if (r && r.month) assetMap.set(r.month, r); });
+                    assetRecords = Array.from(assetMap.values()).sort((a, b) => a.month.localeCompare(b.month));
                 }
+                if (d.rebTargets) rebTargets = d.rebTargets;
+                if (d.simParams) simParams = d.simParams;
                 processSubscriptions();
                 db = db.filter(i => i.date && i.date >= cutoffStr);
                 sortDbDesc();
@@ -1563,9 +1647,16 @@
                 if (d.budgets && typeof d.budgets === 'object') {
                     budgets = { ...budgets, ...d.budgets };
                 }
-                if (d.assetRecords && Array.isArray(d.assetRecords)) {
-                    assetRecords = d.assetRecords;
+                const incomingAssets = Array.isArray(d.records) && d.records.length > 0
+                    ? d.records
+                    : (Array.isArray(d.assetRecords) ? d.assetRecords : null);
+                if (incomingAssets) {
+                    const assetMap = new Map(assetRecords.map(r => [r.month, r]));
+                    incomingAssets.forEach(r => { if (r && r.month) assetMap.set(r.month, r); });
+                    assetRecords = Array.from(assetMap.values()).sort((a, b) => a.month.localeCompare(b.month));
                 }
+                if (d.rebTargets) rebTargets = d.rebTargets;
+                if (d.simParams) simParams = d.simParams;
 
                 const subAdded = processSubscriptions();
                 db = db.filter(i => i.date && i.date >= cutoffStr);
