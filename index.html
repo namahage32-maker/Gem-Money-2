@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GemMoney2 v14</title>
+    <title>GemMoney2 v16</title>
 
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" href="#121212">
@@ -134,7 +134,10 @@
     <div id="toast" class="toast-notice"></div>
 
     <div class="flex justify-between items-center mb-4">
-        <h2>GemMoney2 v14</h2>
+        <div>
+            <h2>GemMoney2 v16</h2>
+            <div id="last-sync-badge" style="font-size:9px; color:#777; margin-top:2px;">🕒 同期履歴なし</div>
+        </div>
         <div class="flex">
             <button onclick="setView('day')" id="t-day" class="tab-btn">一日</button>
             <button onclick="setView('month')" id="t-month" class="tab-btn tab-active">月別</button>
@@ -283,6 +286,21 @@
         let currentAmt = "";
         let editId = null; 
         let pendingImportData = null;
+        let lastSyncInfo = null; // 最終同期日時・種別の保持用
+
+        // ★バグ対応: 日本時間（ローカルタイム）基準のYYYY-MM-DD取得関数（午前0時〜9時前の前日ズレ防止）
+        function getLocalTodayStr(d = new Date()) {
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+
+        // ★バグ対応: 同一ミリ秒内でも絶対に重複しないユニークID生成関数
+        let _lastGeneratedId = 0;
+        function generateUniqueId() {
+            const now = Date.now();
+            const maxDbId = db.reduce((max, i) => (i.id && i.id < 9000000000000000 && i.id > max ? i.id : max), 0);
+            _lastGeneratedId = Math.max(now, _lastGeneratedId + 1, maxDbId + 1);
+            return _lastGeneratedId;
+        }
 
         /* --- 高速日付ソート（new Date()を生成せず文字列比較で10倍高速化） --- */
         function sortDbDesc() {
@@ -345,6 +363,7 @@
                     assetRecords = Array.isArray(data.assetRecords) ? data.assetRecords : [];
                     rebTargets = data.rebTargets || null;
                     simParams = data.simParams || null;
+                    lastSyncInfo = data.lastSyncInfo || null;
                     return;
                 }
             } catch (err) {
@@ -361,6 +380,7 @@
             const lsAssets = localStorage.getItem('gem_assets');
             const lsReb = localStorage.getItem('gem_reb_targets');
             const lsSim = localStorage.getItem('gem_sim_params');
+            const lsSync = localStorage.getItem('gem_last_sync');
 
             if (lsDb) { try { db = JSON.parse(lsDb) || []; } catch(e) {} }
             if (lsCats) { try { cats = JSON.parse(lsCats) || DEFAULT_CATS; } catch(e) {} }
@@ -371,13 +391,27 @@
             if (lsAssets) { try { assetRecords = JSON.parse(lsAssets) || []; } catch(e) {} }
             if (lsReb) { try { rebTargets = JSON.parse(lsReb) || null; } catch(e) {} }
             if (lsSim) { try { simParams = JSON.parse(lsSim) || null; } catch(e) {} }
+            if (lsSync) { try { lastSyncInfo = JSON.parse(lsSync) || null; } catch(e) {} }
 
             if (lsDb || lsCats || lsSubs || lsAnnualSubs) {
                 await save();
             }
         }
 
+        function updateLastSyncUI() {
+            const el = document.getElementById('last-sync-badge');
+            if (!el) return;
+            if (!lastSyncInfo || !lastSyncInfo.time) {
+                el.innerText = '🕒 同期履歴なし';
+                return;
+            }
+            const d = new Date(lastSyncInfo.time);
+            const dtStr = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+            el.innerText = `🕒 最終${lastSyncInfo.action}: ${dtStr}${lastSyncInfo.source ? ` (${lastSyncInfo.source})` : ''}`;
+        }
+
         async function save() {
+            updateLastSyncUI();
             try {
                 const database = await openIDB();
                 await new Promise((resolve, reject) => {
@@ -393,6 +427,7 @@
                         assetRecords: assetRecords,
                         rebTargets: rebTargets,
                         simParams: simParams,
+                        lastSyncInfo: lastSyncInfo,
                         updatedAt: Date.now()
                     }, 'main');
                     tx.oncomplete = () => resolve();
@@ -409,6 +444,7 @@
                     localStorage.setItem('gem_assets', JSON.stringify(assetRecords));
                     if (rebTargets) localStorage.setItem('gem_reb_targets', JSON.stringify(rebTargets));
                     if (simParams) localStorage.setItem('gem_sim_params', JSON.stringify(simParams));
+                    if (lastSyncInfo) localStorage.setItem('gem_last_sync', JSON.stringify(lastSyncInfo));
                 } catch (e) {}
             }
         }
@@ -496,8 +532,9 @@
         }
 
         async function init() {
-            document.getElementById('in-date').valueAsDate = new Date();
+            document.getElementById('in-date').value = getLocalTodayStr();
             await loadStateFromStorage();
+            updateLastSyncUI();
             sortDbDesc();
             const addedCount = processSubscriptions();
             renderCats();
@@ -510,7 +547,7 @@
             }
         }
 
-        /* --- 定期支出の起動時遡及チェック＆自動登録（GemWalletの終了月設定にも対応） --- */
+        /* --- 定期支出の起動時遡及チェック＆自動登録（バグ①対応: 個別削除・日付変更時の復活防止） --- */
         function processSubscriptions() {
             let modified = false;
 
@@ -526,8 +563,9 @@
             const existingIds = new Set(db.map(i => i.id));
             const existingSubMonths = new Set();
             db.forEach(i => {
-                if (i.subId && i.date) {
-                    existingSubMonths.add(`${i.subId}_${i.date.substring(0, 7)}`);
+                if (i.subId) {
+                    if (i.subYm) existingSubMonths.add(`${i.subId}_${i.subYm}`);
+                    if (i.date) existingSubMonths.add(`${i.subId}_${i.date.substring(0, 7)}`);
                 }
             });
 
@@ -576,6 +614,7 @@
                         const newItem = {
                             id: entryId,
                             subId: sub.id,
+                            subYm: ymStr,
                             date: dateStr,
                             title: sub.title,
                             amount: sub.amount,
@@ -916,7 +955,7 @@
                 const y = focus.getFullYear(), m = String(focus.getMonth() + 1).padStart(2, '0'), d = String(focus.getDate()).padStart(2, '0');
                 document.getElementById('in-date').value = `${y}-${m}-${d}`;
             } else {
-                document.getElementById('in-date').valueAsDate = new Date();
+                document.getElementById('in-date').value = getLocalTodayStr();
             }
             renderQuickCats();
             renderFreqShortcuts();
@@ -934,13 +973,18 @@
             if (editId) {
                 const index = db.findIndex(i => i.id === editId);
                 if (index !== -1) {
-                    const updated = { ...db[index], date: d, title: t, amount: a, category: c, updatedAt: Date.now() };
+                    const orig = db[index];
+                    const updated = { ...orig, date: d, title: t, amount: a, category: c, updatedAt: Date.now() };
+                    if (orig.subId) {
+                        if (!updated.subYm && orig.date) updated.subYm = orig.date.substring(0, 7);
+                        updated.manuallyEdited = true;
+                    }
                     delete updated.deleted;
                     if (m) updated.memo = m; else delete updated.memo;
                     db[index] = updated;
                 }
             } else {
-                const newItem = { id: Date.now(), date: d, title: t, amount: a, category: c, updatedAt: Date.now() };
+                const newItem = { id: generateUniqueId(), date: d, title: t, amount: a, category: c, updatedAt: Date.now() };
                 if (m) newItem.memo = m;
                 db.push(newItem);
             }
@@ -1217,16 +1261,17 @@
                 const nowTs = Date.now();
                 db.forEach(item => {
                     if (item.subId === targetSubId && !item.deleted && item.date) {
-                        const ym = item.date.substring(0, 7);
+                        const ym = item.subYm || item.date.substring(0, 7);
                         if (ym < startMonth || (endMonth && ym > endMonth)) {
                             item.deleted = true;
                             item.updatedAt = nowTs;
                             cleanedCount++;
-                        } else if (editingSubId) {
+                        } else if (editingSubId && ym >= curYmStr && !item.manuallyEdited) {
                             const [yStr, mStr] = ym.split('-');
                             const lastDay = new Date(parseInt(yStr, 10), parseInt(mStr, 10), 0).getDate();
                             const tDay = (day === 'last' || parseInt(day, 10) >= lastDay) ? lastDay : parseInt(day, 10);
                             item.date = `${ym}-${String(tDay).padStart(2, '0')}`;
+                            item.subYm = ym;
                             item.title = title;
                             item.amount = amount;
                             item.category = category;
@@ -1342,7 +1387,7 @@
             const legendCont = document.getElementById('chart-legend');
             let legendHtml = `<div class="flex" style="flex-wrap:wrap; gap:8px; justify-content:center; margin-top:12px;">`;
             expCats.forEach(cat => {
-                legendHtml += `<div class="flex items-center gap-1" style="font-size:10px; color:#bbb;"><div style="width:10px; height:10px; background:${catColors[cat]}; border-radius:2px;"></div>${cat}</div>`;
+                legendHtml += `<div class="flex items-center gap-1" style="font-size:10px; color:#bbb;"><div style="width:10px; height:10px; background:${catColors[cat]}; border-radius:2px;"></div>${escapeHtml(cat)}</div>`;
             });
             legendHtml += `</div>`;
             if(legendCont) legendCont.innerHTML = legendHtml;
@@ -1500,6 +1545,15 @@
 
             document.getElementById('modal').style.display = 'none';
 
+            if (fmt === 'json') {
+                lastSyncInfo = {
+                    time: Date.now(),
+                    action: 'JSON保存',
+                    source: rangeType === '3months' ? '3ヶ月' : rangeType
+                };
+                save();
+            }
+
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
             a.download = filename;
@@ -1586,13 +1640,21 @@
                 const incomingAssets = Array.isArray(d.records) && d.records.length > 0
                     ? d.records
                     : (Array.isArray(d.assetRecords) ? d.assetRecords : null);
+                // バグ②対応: 完全上書き時は既存の古い資産データを残さず、ファイルの資産データでクリーンに置換
                 if (incomingAssets) {
-                    const assetMap = new Map(assetRecords.map(r => [r.month, r]));
+                    const assetMap = new Map();
                     incomingAssets.forEach(r => { if (r && r.month) assetMap.set(r.month, r); });
                     assetRecords = Array.from(assetMap.values()).sort((a, b) => a.month.localeCompare(b.month));
+                } else if (!d.householdOnly) {
+                    assetRecords = [];
                 }
-                if (d.rebTargets) rebTargets = d.rebTargets;
-                if (d.simParams) simParams = d.simParams;
+                rebTargets = d.rebTargets || null;
+                simParams = d.simParams || null;
+                lastSyncInfo = {
+                    time: Date.now(),
+                    action: '取込(上書き)',
+                    source: d.sourceApp || 'JSON'
+                };
                 processSubscriptions();
                 db = db.filter(i => i.date && i.date >= cutoffStr);
                 sortDbDesc();
@@ -1685,12 +1747,33 @@
                     ? d.records
                     : (Array.isArray(d.assetRecords) ? d.assetRecords : null);
                 if (incomingAssets) {
-                    const assetMap = new Map(assetRecords.map(r => [r.month, r]));
-                    incomingAssets.forEach(r => { if (r && r.month) assetMap.set(r.month, r); });
-                    assetRecords = Array.from(assetMap.values()).sort((a, b) => a.month.localeCompare(b.month));
+                    // GemAssetManagerの直接出力ファイル、またはフルバックアップの場合はファイル側の月構成（削除・補間解除）を優先反映
+                    if (d.sourceApp === 'GemAssetManager') {
+                        const assetMap = new Map();
+                        incomingAssets.forEach(r => { if (r && r.month) assetMap.set(r.month, r); });
+                        assetRecords = Array.from(assetMap.values()).sort((a, b) => a.month.localeCompare(b.month));
+                    } else {
+                        const assetMap = new Map(assetRecords.map(r => [r.month, r]));
+                        const fileTs = d.exportedAt ? new Date(d.exportedAt).getTime() : 0;
+                        incomingAssets.forEach(r => {
+                            if (!r || !r.month) return;
+                            const ex = assetMap.get(r.month);
+                            const inTime = r.updatedAt || fileTs || 0;
+                            const exTime = ex ? (ex.updatedAt || 0) : 0;
+                            if (!ex || inTime >= exTime) {
+                                assetMap.set(r.month, r);
+                            }
+                        });
+                        assetRecords = Array.from(assetMap.values()).sort((a, b) => a.month.localeCompare(b.month));
+                    }
                 }
                 if (d.rebTargets) rebTargets = d.rebTargets;
                 if (d.simParams) simParams = d.simParams;
+                lastSyncInfo = {
+                    time: Date.now(),
+                    action: '取込(統合)',
+                    source: d.sourceApp || 'JSON'
+                };
 
                 const subAdded = processSubscriptions();
                 db = db.filter(i => i.date && i.date >= cutoffStr);
