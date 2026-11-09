@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GemMoney2 v16</title>
+    <title>GemMoney2 v17</title>
 
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" href="#121212">
@@ -135,7 +135,7 @@
 
     <div class="flex justify-between items-center mb-4">
         <div>
-            <h2>GemMoney2 v16</h2>
+            <h2>GemMoney2 v17</h2>
             <div id="last-sync-badge" style="font-size:9px; color:#777; margin-top:2px;">🕒 同期履歴なし</div>
         </div>
         <div class="flex">
@@ -279,6 +279,7 @@
         let budgets = {};          // GemWalletとの互換保持用
         let budgetsUpdatedAt = 0;  // 予算設定の更新タイムスタンプ（クリアした予算の復活防止用）
         let assetRecords = [];     // GemAssetManagerデータ保持用
+        let clearedAssetMonths = {}; // GemAssetManager削除・補間解除月の履歴保持用
         let rebTargets = null; // GemAssetManager目標配分保持用
         let simParams = null;  // GemAssetManagerシミュレーション設定保持用
 
@@ -288,18 +289,27 @@
         let pendingImportData = null;
         let lastSyncInfo = null; // 最終同期日時・種別の保持用
 
-        // ★バグ対応: 日本時間（ローカルタイム）基準のYYYY-MM-DD取得関数（午前0時〜9時前の前日ズレ防止）
+        // 日本時間（ローカルタイム）基準のYYYY-MM-DD取得関数（午前0時〜9時前の前日ズレ防止）
         function getLocalTodayStr(d = new Date()) {
             return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         }
 
-        // ★バグ対応: 同一ミリ秒内でも絶対に重複しないユニークID生成関数
+        // 同一ミリ秒内でも絶対に重複しないユニークID生成関数
         let _lastGeneratedId = 0;
         function generateUniqueId() {
             const now = Date.now();
             const maxDbId = db.reduce((max, i) => (i.id && i.id < 9000000000000000 && i.id > max ? i.id : max), 0);
             _lastGeneratedId = Math.max(now, _lastGeneratedId + 1, maxDbId + 1);
             return _lastGeneratedId;
+        }
+
+        // 定期項目（subs）用の絶対に重複しないコンパクトID生成関数
+        let _lastGeneratedSubId = 0;
+        function generateUniqueSubId() {
+            const base = Math.floor((Date.now() - 1700000000000) / 100) + Math.floor(Math.random() * 100);
+            const maxSubId = subs.reduce((max, s) => (s.id && s.id < 10000000000 && s.id > max ? s.id : max), 0);
+            _lastGeneratedSubId = Math.max(base, _lastGeneratedSubId + 1, maxSubId + 1);
+            return _lastGeneratedSubId;
         }
 
         /* --- 高速日付ソート（new Date()を生成せず文字列比較で10倍高速化） --- */
@@ -361,6 +371,7 @@
                     budgets = (data.budgets && typeof data.budgets === 'object') ? data.budgets : {};
                     budgetsUpdatedAt = data.budgetsUpdatedAt || 0;
                     assetRecords = Array.isArray(data.assetRecords) ? data.assetRecords : [];
+                    clearedAssetMonths = (data.clearedAssetMonths && typeof data.clearedAssetMonths === 'object') ? data.clearedAssetMonths : {};
                     rebTargets = data.rebTargets || null;
                     simParams = data.simParams || null;
                     lastSyncInfo = data.lastSyncInfo || null;
@@ -378,6 +389,7 @@
             const lsBudgets = localStorage.getItem('gem_budgets');
             const lsBudgetsTs = localStorage.getItem('gem_budgets_ts');
             const lsAssets = localStorage.getItem('gem_assets');
+            const lsClearedAssets = localStorage.getItem('gem_cleared_assets');
             const lsReb = localStorage.getItem('gem_reb_targets');
             const lsSim = localStorage.getItem('gem_sim_params');
             const lsSync = localStorage.getItem('gem_last_sync');
@@ -389,6 +401,7 @@
             if (lsBudgets) { try { budgets = JSON.parse(lsBudgets) || {}; } catch(e) {} }
             if (lsBudgetsTs) { budgetsUpdatedAt = parseInt(lsBudgetsTs, 10) || 0; }
             if (lsAssets) { try { assetRecords = JSON.parse(lsAssets) || []; } catch(e) {} }
+            if (lsClearedAssets) { try { clearedAssetMonths = JSON.parse(lsClearedAssets) || {}; } catch(e) {} }
             if (lsReb) { try { rebTargets = JSON.parse(lsReb) || null; } catch(e) {} }
             if (lsSim) { try { simParams = JSON.parse(lsSim) || null; } catch(e) {} }
             if (lsSync) { try { lastSyncInfo = JSON.parse(lsSync) || null; } catch(e) {} }
@@ -425,6 +438,7 @@
                         budgets: budgets,
                         budgetsUpdatedAt: budgetsUpdatedAt,
                         assetRecords: assetRecords,
+                        clearedAssetMonths: clearedAssetMonths,
                         rebTargets: rebTargets,
                         simParams: simParams,
                         lastSyncInfo: lastSyncInfo,
@@ -442,10 +456,14 @@
                     localStorage.setItem('gem_budgets', JSON.stringify(budgets));
                     localStorage.setItem('gem_budgets_ts', String(budgetsUpdatedAt));
                     localStorage.setItem('gem_assets', JSON.stringify(assetRecords));
+                    localStorage.setItem('gem_cleared_assets', JSON.stringify(clearedAssetMonths));
                     if (rebTargets) localStorage.setItem('gem_reb_targets', JSON.stringify(rebTargets));
                     if (simParams) localStorage.setItem('gem_sim_params', JSON.stringify(simParams));
                     if (lastSyncInfo) localStorage.setItem('gem_last_sync', JSON.stringify(lastSyncInfo));
-                } catch (e) {}
+                } catch (e) {
+                    console.error('Storage Save Error:', e);
+                    showToast('⚠️ 保存エラー: 容量不足またはプライベートモードの可能性があります');
+                }
             }
         }
 
@@ -810,18 +828,27 @@
         }
 
         function move(d) {
+            if (isNaN(focus.getTime())) focus = new Date();
             if(mode==='day') focus.setDate(focus.getDate()+d);
             else focus.setMonth(focus.getMonth()+d);
             render();
         }
 
         function syncFromInput() {
-            const d = document.getElementById('in-date').value;
-            if(d) {
-                const parts = d.split('-');
-                focus = new Date(parts[0], parts[1] - 1, parts[2]);
-                if(mode !== 'day') setView('day'); else render();
+            const inputEl = document.getElementById('in-date');
+            const d = inputEl.value;
+            if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+                const parts = d.split('-').map(Number);
+                const nextDate = new Date(parts[0], parts[1] - 1, parts[2]);
+                if (!isNaN(nextDate.getTime())) {
+                    focus = nextDate;
+                    if (mode !== 'day') setView('day'); else render();
+                    return;
+                }
             }
+            // クリアされた場合や不正値の場合は、現在の表示日（または今日）に安全に復元
+            if (isNaN(focus.getTime())) focus = new Date();
+            inputEl.value = getLocalTodayStr(focus);
         }
 
         function toggleMemo() {
@@ -1244,7 +1271,7 @@
                     if (memo) subs[idx].memo = memo; else delete subs[idx].memo;
                 }
             } else {
-                const compactId = Math.floor((Date.now() - 1700000000000) / 100) + Math.floor(Math.random() * 100);
+                const compactId = generateUniqueSubId();
                 targetSubId = compactId;
                 const newSub = {
                     id: compactId,
@@ -1530,6 +1557,7 @@
                 if (!onlyHousehold) {
                     payload.assetRecords = assetRecords;
                     payload.records = assetRecords;
+                    payload.clearedAssetMonths = clearedAssetMonths;
                     payload.rebTargets = rebTargets;
                     payload.simParams = simParams;
                 }
@@ -1637,10 +1665,13 @@
                     budgets = { ...d.budgets };
                     budgetsUpdatedAt = d.budgetsUpdatedAt || Date.now();
                 }
+                clearedAssetMonths = (d.clearedAssetMonths && typeof d.clearedAssetMonths === 'object')
+                    ? { ...d.clearedAssetMonths }
+                    : {};
                 const incomingAssets = Array.isArray(d.records) && d.records.length > 0
                     ? d.records
                     : (Array.isArray(d.assetRecords) ? d.assetRecords : null);
-                // バグ②対応: 完全上書き時は既存の古い資産データを残さず、ファイルの資産データでクリーンに置換
+                // 完全上書き時は既存の古い資産データを残さず、ファイルの資産データでクリーンに置換
                 if (incomingAssets) {
                     const assetMap = new Map();
                     incomingAssets.forEach(r => { if (r && r.month) assetMap.set(r.month, r); });
@@ -1743,11 +1774,17 @@
                         budgets = { ...budgets, ...d.budgets };
                     }
                 }
+                if (d.clearedAssetMonths && typeof d.clearedAssetMonths === 'object') {
+                    Object.entries(d.clearedAssetMonths).forEach(([m, ts]) => {
+                        if (!clearedAssetMonths[m] || ts > clearedAssetMonths[m]) {
+                            clearedAssetMonths[m] = ts;
+                        }
+                    });
+                }
                 const incomingAssets = Array.isArray(d.records) && d.records.length > 0
                     ? d.records
                     : (Array.isArray(d.assetRecords) ? d.assetRecords : null);
                 if (incomingAssets) {
-                    // GemAssetManagerの直接出力ファイル、またはフルバックアップの場合はファイル側の月構成（削除・補間解除）を優先反映
                     if (d.sourceApp === 'GemAssetManager') {
                         const assetMap = new Map();
                         incomingAssets.forEach(r => { if (r && r.month) assetMap.set(r.month, r); });
@@ -1757,13 +1794,22 @@
                         const fileTs = d.exportedAt ? new Date(d.exportedAt).getTime() : 0;
                         incomingAssets.forEach(r => {
                             if (!r || !r.month) return;
-                            const ex = assetMap.get(r.month);
                             const inTime = r.updatedAt || fileTs || 0;
+                            const clearedTs = clearedAssetMonths[r.month] || 0;
+                            if (clearedTs > 0 && inTime <= clearedTs) return;
+
+                            const ex = assetMap.get(r.month);
                             const exTime = ex ? (ex.updatedAt || 0) : 0;
                             if (!ex || inTime >= exTime) {
                                 assetMap.set(r.month, r);
+                                delete clearedAssetMonths[r.month];
                             }
                         });
+                        for (const [m, rec] of assetMap.entries()) {
+                            if (clearedAssetMonths[m] && (rec.updatedAt || 0) <= clearedAssetMonths[m]) {
+                                assetMap.delete(m);
+                            }
+                        }
                         assetRecords = Array.from(assetMap.values()).sort((a, b) => a.month.localeCompare(b.month));
                     }
                 }
