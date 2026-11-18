@@ -1,7 +1,10 @@
-const CACHE_NAME = 'gemmoney-cache-v17'; // v17に更新
-const urlsToCache = [
+const CACHE_NAME = 'gemmoney-cache-v36'; // v36に更新
+const REQUIRED_FILES = [
+  './',
   './index.html',
-  './manifest.json',
+  './manifest.json'
+];
+const OPTIONAL_FILES = [
   './icon.png'
 ];
 
@@ -9,8 +12,13 @@ self.addEventListener('install', function(event) {
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(function(cache) {
-        return cache.addAll(urlsToCache);
+      .then(async function(cache) {
+        await cache.addAll(REQUIRED_FILES);
+        await Promise.allSettled(
+          OPTIONAL_FILES.map(function(url) {
+            return cache.add(url).catch(function() {});
+          })
+        );
       })
   );
 });
@@ -33,6 +41,7 @@ self.addEventListener('activate', function(event) {
 
 // キャッシュを即座に返しつつ、裏で最新ファイルがあればキャッシュを更新（Stale-While-Revalidate）
 self.addEventListener('fetch', function(event) {
+  if (!event.request.url.startsWith('http')) return;
   event.respondWith(
     caches.open(CACHE_NAME).then(function(cache) {
       return cache.match(event.request).then(function(cachedResponse) {
@@ -42,7 +51,7 @@ self.addEventListener('fetch', function(event) {
           }
           return networkResponse;
         }).catch(function() {
-          return cachedResponse;
+          return cachedResponse || new Response('', { status: 404, statusText: 'Offline' });
         });
         return cachedResponse || fetchPromise;
       });

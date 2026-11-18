@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GemMoney2 v17</title>
+    <title>GemMoney2 v36</title>
 
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" href="#121212">
@@ -21,7 +21,7 @@
         .grid { display: grid; gap: 8px; } .grid-3 { grid-template-columns: repeat(3, 1fr); }
         .card { background: var(--card); border-radius: 12px; border: 1px solid #333; padding: 12px; position: relative; }
         h2 { color: var(--blue); font-style: italic; margin: 0; letter-spacing: -1px; }
-        input, select, button { background: #2a2a2a; color: white; border: 1px solid var(--gray); border-radius: 6px; padding: 8px; font-size: 14px; box-sizing: border-box; }
+        input, select, textarea, button { background: #2a2a2a; color: white; border: 1px solid var(--gray); border-radius: 6px; padding: 8px; font-size: 14px; box-sizing: border-box; font-family: inherit; }
         button { cursor: pointer; border: none; font-weight: bold; touch-action: manipulation; }
         .btn-blue { background: var(--blue); color: white; } 
         .btn-gray { background: #333; color: #aaa; }
@@ -36,7 +36,7 @@
         .bar-income { fill: var(--blue); opacity: 0.8; }
         
         .history-item { border-bottom: 1px solid #222; padding: 10px 0; font-size: 14px; }
-        .memo-text { font-size: 11px; color: #888; margin-top: 3px; }
+        .memo-text { font-size: 11px; color: #888; margin-top: 3px; white-space: pre-wrap; word-break: break-all; }
         footer { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg); border-top: 1px solid #333; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; font-size: 10px; z-index: 50; }
         #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 100; align-items: center; justify-content: center; }
 
@@ -135,7 +135,7 @@
 
     <div class="flex justify-between items-center mb-4">
         <div>
-            <h2>GemMoney2 v17</h2>
+            <h2>GemMoney2 v36</h2>
             <div id="last-sync-badge" style="font-size:9px; color:#777; margin-top:2px;">🕒 同期履歴なし</div>
         </div>
         <div class="flex">
@@ -185,7 +185,7 @@
             </div>
 
             <div id="memo-wrap" class="mb-2" style="display:none;">
-                <input type="text" id="in-memo" placeholder="メモ・注釈(任意)" style="width:100%; font-size:13px; background:#181818;" autocomplete="off" oninput="updateMemoBtnState()">
+                <textarea id="in-memo" rows="2" placeholder="メモ・注釈(任意)" style="width:100%; font-size:13px; background:#181818; resize:vertical;" oninput="updateMemoBtnState()"></textarea>
             </div>
 
             <div class="flex gap-2 items-center">
@@ -274,14 +274,17 @@
 
         let db = [];
         let cats = DEFAULT_CATS;
+        let catsUpdatedAt = 0;     // カテゴリ並び順・削除の更新タイムスタンプ
         let subs = [];
         let annualSubs = [];       // GemWalletの年払い・期別固定費との互換保持用
         let budgets = {};          // GemWalletとの互換保持用
         let budgetsUpdatedAt = 0;  // 予算設定の更新タイムスタンプ（クリアした予算の復活防止用）
         let assetRecords = [];     // GemAssetManagerデータ保持用
         let clearedAssetMonths = {}; // GemAssetManager削除・補間解除月の履歴保持用
-        let rebTargets = null; // GemAssetManager目標配分保持用
-        let simParams = null;  // GemAssetManagerシミュレーション設定保持用
+        let rebTargets = null;         // GemAssetManager目標配分保持用
+        let rebTargetsUpdatedAt = 0;   // リバランス目標の更新タイムスタンプ
+        let simParams = null;          // GemAssetManagerシミュレーション設定保持用
+        let simParamsUpdatedAt = 0;    // シミュレーション設定の更新タイムスタンプ
 
         let mode = 'month', focus = new Date();
         let currentAmt = "";
@@ -294,11 +297,11 @@
             return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         }
 
-        // 同一ミリ秒内でも絶対に重複しないユニークID生成関数
+        // 同一ミリ秒内でも絶対に重複しないユニークID生成関数（定期明細IDを除外）
         let _lastGeneratedId = 0;
         function generateUniqueId() {
             const now = Date.now();
-            const maxDbId = db.reduce((max, i) => (i.id && i.id < 9000000000000000 && i.id > max ? i.id : max), 0);
+            const maxDbId = db.reduce((max, i) => (!i.subId && i.id && i.id < 3000000000000 && i.id > max ? i.id : max), 0);
             _lastGeneratedId = Math.max(now, _lastGeneratedId + 1, maxDbId + 1);
             return _lastGeneratedId;
         }
@@ -366,6 +369,7 @@
                 if (data) {
                     db = Array.isArray(data.db) ? data.db : [];
                     cats = Array.isArray(data.cats) && data.cats.length > 0 ? data.cats : DEFAULT_CATS;
+                    catsUpdatedAt = data.catsUpdatedAt || 0;
                     subs = Array.isArray(data.subs) ? data.subs : [];
                     annualSubs = Array.isArray(data.annualSubs) ? data.annualSubs : [];
                     budgets = (data.budgets && typeof data.budgets === 'object') ? data.budgets : {};
@@ -373,7 +377,9 @@
                     assetRecords = Array.isArray(data.assetRecords) ? data.assetRecords : [];
                     clearedAssetMonths = (data.clearedAssetMonths && typeof data.clearedAssetMonths === 'object') ? data.clearedAssetMonths : {};
                     rebTargets = data.rebTargets || null;
+                    rebTargetsUpdatedAt = data.rebTargetsUpdatedAt || (data.rebTargets && data.rebTargets.updatedAt) || 0;
                     simParams = data.simParams || null;
+                    simParamsUpdatedAt = data.simParamsUpdatedAt || (data.simParams && data.simParams.updatedAt) || 0;
                     lastSyncInfo = data.lastSyncInfo || null;
                     return;
                 }
@@ -384,6 +390,7 @@
             // 初回起動時：既存のlocalStorageにデータがあれば自動マイグレーション（引き継ぎ）
             const lsDb = localStorage.getItem('gem_db');
             const lsCats = localStorage.getItem('gem_cats');
+            const lsCatsTs = localStorage.getItem('gem_cats_ts');
             const lsSubs = localStorage.getItem('gem_subs');
             const lsAnnualSubs = localStorage.getItem('gem_annual_subs');
             const lsBudgets = localStorage.getItem('gem_budgets');
@@ -391,11 +398,14 @@
             const lsAssets = localStorage.getItem('gem_assets');
             const lsClearedAssets = localStorage.getItem('gem_cleared_assets');
             const lsReb = localStorage.getItem('gem_reb_targets');
+            const lsRebTs = localStorage.getItem('gem_reb_targets_ts');
             const lsSim = localStorage.getItem('gem_sim_params');
+            const lsSimTs = localStorage.getItem('gem_sim_params_ts');
             const lsSync = localStorage.getItem('gem_last_sync');
 
             if (lsDb) { try { db = JSON.parse(lsDb) || []; } catch(e) {} }
             if (lsCats) { try { cats = JSON.parse(lsCats) || DEFAULT_CATS; } catch(e) {} }
+            if (lsCatsTs) { catsUpdatedAt = parseInt(lsCatsTs, 10) || 0; }
             if (lsSubs) { try { subs = JSON.parse(lsSubs) || []; } catch(e) {} }
             if (lsAnnualSubs) { try { annualSubs = JSON.parse(lsAnnualSubs) || []; } catch(e) {} }
             if (lsBudgets) { try { budgets = JSON.parse(lsBudgets) || {}; } catch(e) {} }
@@ -403,7 +413,9 @@
             if (lsAssets) { try { assetRecords = JSON.parse(lsAssets) || []; } catch(e) {} }
             if (lsClearedAssets) { try { clearedAssetMonths = JSON.parse(lsClearedAssets) || {}; } catch(e) {} }
             if (lsReb) { try { rebTargets = JSON.parse(lsReb) || null; } catch(e) {} }
+            if (lsRebTs) { rebTargetsUpdatedAt = parseInt(lsRebTs, 10) || 0; }
             if (lsSim) { try { simParams = JSON.parse(lsSim) || null; } catch(e) {} }
+            if (lsSimTs) { simParamsUpdatedAt = parseInt(lsSimTs, 10) || 0; }
             if (lsSync) { try { lastSyncInfo = JSON.parse(lsSync) || null; } catch(e) {} }
 
             if (lsDb || lsCats || lsSubs || lsAnnualSubs) {
@@ -433,6 +445,7 @@
                     store.put({
                         db: db,
                         cats: cats,
+                        catsUpdatedAt: catsUpdatedAt,
                         subs: subs,
                         annualSubs: annualSubs,
                         budgets: budgets,
@@ -440,7 +453,9 @@
                         assetRecords: assetRecords,
                         clearedAssetMonths: clearedAssetMonths,
                         rebTargets: rebTargets,
+                        rebTargetsUpdatedAt: rebTargetsUpdatedAt,
                         simParams: simParams,
+                        simParamsUpdatedAt: simParamsUpdatedAt,
                         lastSyncInfo: lastSyncInfo,
                         updatedAt: Date.now()
                     }, 'main');
@@ -451,6 +466,7 @@
                 try {
                     localStorage.setItem('gem_db', JSON.stringify(db));
                     localStorage.setItem('gem_cats', JSON.stringify(cats));
+                    localStorage.setItem('gem_cats_ts', String(catsUpdatedAt));
                     localStorage.setItem('gem_subs', JSON.stringify(subs));
                     localStorage.setItem('gem_annual_subs', JSON.stringify(annualSubs));
                     localStorage.setItem('gem_budgets', JSON.stringify(budgets));
@@ -458,7 +474,9 @@
                     localStorage.setItem('gem_assets', JSON.stringify(assetRecords));
                     localStorage.setItem('gem_cleared_assets', JSON.stringify(clearedAssetMonths));
                     if (rebTargets) localStorage.setItem('gem_reb_targets', JSON.stringify(rebTargets));
+                    localStorage.setItem('gem_reb_targets_ts', String(rebTargetsUpdatedAt));
                     if (simParams) localStorage.setItem('gem_sim_params', JSON.stringify(simParams));
+                    localStorage.setItem('gem_sim_params_ts', String(simParamsUpdatedAt));
                     if (lastSyncInfo) localStorage.setItem('gem_last_sync', JSON.stringify(lastSyncInfo));
                 } catch (e) {
                     console.error('Storage Save Error:', e);
@@ -524,29 +542,138 @@
             return (baseSubId * 10000) + ((year % 100) * 100) + month;
         }
 
+        function isFlexibleAnnualTitleMatch(targetKey, entryKey) {
+            if (!targetKey || !entryKey || entryKey === '未分類') return false;
+            if (entryKey.includes(targetKey)) return true;
+            if (entryKey.length >= 2 && targetKey.includes(entryKey)) return true;
+            const shorter = targetKey.length <= entryKey.length ? targetKey : entryKey;
+            const longer = targetKey.length <= entryKey.length ? entryKey : targetKey;
+            if (shorter.length >= 3) {
+                let matchBigrams = 0;
+                const totalBigrams = shorter.length - 1;
+                for (let idx = 0; idx < totalBigrams; idx++) {
+                    if (longer.includes(shorter.substring(idx, idx + 2))) matchBigrams++;
+                }
+                if (matchBigrams / totalBigrams >= 0.65) return true;
+            }
+            return false;
+        }
+
         function getUnpaidAnnualTitlesForCurrentMonth() {
             const now = new Date();
             const curY = now.getFullYear();
             const curM = now.getMonth() + 1;
-            const ymPrefix = `${curY}-${String(curM).padStart(2, '0')}`;
             const norm = s => (s || '').normalize('NFKC').toLowerCase().replace(/[\s ・\-_ー()（）「」『』、。,.]/g, '');
 
-            const dueList = annualSubs.filter(a => !a.deleted && a.active !== false && Array.isArray(a.months) && a.months.includes(curM));
+            const allAnnuals = annualSubs.filter(a => !a.deleted && a.active !== false);
+            const dueList = allAnnuals.filter(a => Array.isArray(a.months) && a.months.includes(curM));
             if (dueList.length === 0) return [];
 
-            const monthItems = db.filter(i => !i.deleted && i.date && i.date.startsWith(ymPrefix));
-            const unpaid = [];
-            dueList.forEach(ann => {
-                const key = norm(ann.title);
-                if (!key) return;
-                const matched = monthItems.some(i => {
-                    const tKey = norm(i.title);
-                    const mKey = norm(i.memo);
-                    return (tKey && (tKey.includes(key) || key.includes(tKey))) || (mKey && mKey.includes(key));
-                });
-                if (!matched) unpaid.push(ann.title);
+            const activeItems = db.filter(i => !i.deleted && i.category !== '収入' && i.date);
+            const usedEntryIds = new Set();
+            const matchedMap = new Map(); // key: `${annId}_${m}` -> entry
+
+            const getScheduleMonths = (a) => {
+                const raw = Array.isArray(a.months) ? a.months : [];
+                return [...new Set(raw)].sort((x, y) => x - y);
+            };
+
+            const isFlexibleMatchForAnn = (a, i) => {
+                if (i.annualSubId) return i.annualSubId === a.id;
+                if (i.subId) return false;
+                if (a.category && i.category !== a.category) return false;
+                const k = norm(a.title);
+                if (!k) return false;
+                const tKey = norm(i.title);
+                const mKey = norm(i.memo);
+                return isFlexibleAnnualTitleMatch(k, tKey) || isFlexibleAnnualTitleMatch(k, mKey);
+            };
+
+            const pickBestCandidate = (candidates, targetAmt) => {
+                if (candidates.length === 0) return null;
+                if (candidates.length === 1 || !targetAmt) return candidates[0];
+                return [...candidates].sort((a, b) => Math.abs(a.amount - targetAmt) - Math.abs(b.amount - targetAmt))[0];
+            };
+
+            // 1. 明示的に annualSubId が紐付けられた当月明細を最優先で確保
+            allAnnuals.forEach(a => {
+                for (const sm of getScheduleMonths(a)) {
+                    const ymPrefix = `${curY}-${String(sm).padStart(2, '0')}`;
+                    const cands = activeItems.filter(i => !usedEntryIds.has(i.id) && i.date.startsWith(ymPrefix) && i.annualSubId === a.id);
+                    const hit = pickBestCandidate(cands, a.amount);
+                    if (hit) {
+                        usedEntryIds.add(hit.id);
+                        matchedMap.set(`${a.id}_${sm}`, hit);
+                    }
+                }
             });
-            return unpaid;
+
+            // 2. 項目名が完全一致する当月明細を優先確保
+            allAnnuals.forEach(a => {
+                const k = norm(a.title);
+                if (!k) return;
+                for (const sm of getScheduleMonths(a)) {
+                    if (matchedMap.has(`${a.id}_${sm}`)) continue;
+                    const ymPrefix = `${curY}-${String(sm).padStart(2, '0')}`;
+                    const cands = activeItems.filter(i =>
+                        !usedEntryIds.has(i.id) &&
+                        !i.annualSubId &&
+                        !i.subId &&
+                        (!a.category || i.category === a.category) &&
+                        i.date.startsWith(ymPrefix) &&
+                        norm(i.title) === k
+                    );
+                    const hit = pickBestCandidate(cands, a.amount);
+                    if (hit) {
+                        usedEntryIds.add(hit.id);
+                        matchedMap.set(`${a.id}_${sm}`, hit);
+                    }
+                }
+            });
+
+            // 3. 予定月ぴったり（当月）の柔軟一致明細を確保
+            allAnnuals.forEach(a => {
+                for (const sm of getScheduleMonths(a)) {
+                    if (matchedMap.has(`${a.id}_${sm}`)) continue;
+                    const ymPrefix = `${curY}-${String(sm).padStart(2, '0')}`;
+                    const cands = activeItems.filter(i =>
+                        !usedEntryIds.has(i.id) &&
+                        i.date.startsWith(ymPrefix) &&
+                        isFlexibleMatchForAnn(a, i)
+                    );
+                    const hit = pickBestCandidate(cands, a.amount);
+                    if (hit) {
+                        usedEntryIds.add(hit.id);
+                        matchedMap.set(`${a.id}_${sm}`, hit);
+                    }
+                }
+            });
+
+            // 4. 予定月に明細が無い月について、未使用の明細から前後1ヶ月（別の予定月でない月）を照合
+            allAnnuals.forEach(a => {
+                const rawMonths = Array.isArray(a.months) ? a.months : [];
+                const scheduledSet = new Set(rawMonths);
+                for (const sm of getScheduleMonths(a)) {
+                    if (matchedMap.has(`${a.id}_${sm}`)) continue;
+                    const neighborMonths = [sm - 1, sm + 1].filter(m => m >= 1 && m <= 12 && !scheduledSet.has(m));
+                    for (const nm of neighborMonths) {
+                        const nPrefix = `${curY}-${String(nm).padStart(2, '0')}`;
+                        const cands = activeItems.filter(i =>
+                            !usedEntryIds.has(i.id) &&
+                            i.date.startsWith(nPrefix) &&
+                            isFlexibleMatchForAnn(a, i)
+                        );
+                        const nearMatch = pickBestCandidate(cands, a.amount);
+                        if (nearMatch) {
+                            usedEntryIds.add(nearMatch.id);
+                            matchedMap.set(`${a.id}_${sm}`, nearMatch);
+                            break;
+                        }
+                    }
+                }
+            });
+
+            return dueList.filter(ann => !matchedMap.has(`${ann.id}_${curM}`)).map(ann => ann.title);
         }
 
         async function init() {
@@ -558,7 +685,9 @@
             renderCats();
             render();
             const unpaidAnnuals = getUnpaidAnnualTitlesForCurrentMonth();
-            if (addedCount > 0) {
+            if (addedCount > 0 && unpaidAnnuals.length > 0) {
+                showToast(`🔄 定期${addedCount}件登録 / 🔔 年払未入力: ${unpaidAnnuals.join('・')}`);
+            } else if (addedCount > 0) {
                 showToast(`🔄 定期項目を ${addedCount}件 自動登録しました`);
             } else if (unpaidAnnuals.length > 0) {
                 showToast(`🔔 今月の年払予定(未入力): ${unpaidAnnuals.join('・')}`);
@@ -577,24 +706,48 @@
             const curY = now.getFullYear();
             const curM = now.getMonth() + 1;
             const curD = now.getDate();
+            const cutoffYm = getImportCutoffDateStr().substring(0, 7); // スマホ保持基準月（2年前）
 
-            const existingIds = new Set(db.map(i => i.id));
+            const existingIds = new Set();
             const existingSubMonths = new Set();
+            const pendingRestoreMap = new Map();
             db.forEach(i => {
                 if (i.subId) {
-                    if (i.subYm) existingSubMonths.add(`${i.subId}_${i.subYm}`);
-                    if (i.date) existingSubMonths.add(`${i.subId}_${i.date.substring(0, 7)}`);
+                    if (!i.subYm && i.date) {
+                        i.subYm = i.date.substring(0, 7);
+                        modified = true;
+                    }
+                    // 支払日変更により「未到来日」となって一時墓標化されている明細は、到来時に再利用できるよう退避
+                    if (i.deleted && i.pendingSubDay) {
+                        if (i.subYm) pendingRestoreMap.set(`${i.subId}_${i.subYm}`, i);
+                        pendingRestoreMap.set(`id_${i.id}`, i);
+                        return;
+                    }
+                    existingIds.add(i.id);
+                    if (i.subYm) {
+                        existingSubMonths.add(`${i.subId}_${i.subYm}`);
+                    }
+                } else if (i.id >= 3000000000000) {
+                    // 過去に定期ID帯で採番されてしまった手動入力明細があれば通常IDへ自動退避
+                    i.id = generateUniqueId();
+                    modified = true;
                 }
             });
 
             let addedCount = 0;
+            const curYmStr = `${curY}-${String(curM).padStart(2, '0')}`;
 
             subs.forEach(sub => {
                 if (sub.deleted) return;
-                if (sub.active === false && !sub.endMonth) return;
+                if (sub.active === false && (sub.manualPause || !sub.endMonth || sub.endMonth >= curYmStr)) return;
                 if (!sub.startMonth) return;
 
-                const parts = sub.startMonth.split('-');
+                // 再開月（resumeMonth）がある場合はそこから生成し、さらにスマホ保持期間（直近2年）より前はスキップ
+                const baseStartMonth = (sub.resumeMonth && sub.resumeMonth > sub.startMonth)
+                    ? sub.resumeMonth
+                    : sub.startMonth;
+                const effectiveStartMonth = baseStartMonth < cutoffYm ? cutoffYm : baseStartMonth;
+                const parts = effectiveStartMonth.split('-');
                 let y = parseInt(parts[0], 10);
                 let m = parseInt(parts[1], 10);
                 if (isNaN(y) || isNaN(m)) return;
@@ -629,18 +782,31 @@
 
                     if (!existingSubMonths.has(subMonthKey) && !existingIds.has(entryId)) {
                         const dateStr = `${ymStr}-${String(targetDay).padStart(2, '0')}`;
-                        const newItem = {
-                            id: entryId,
-                            subId: sub.id,
-                            subYm: ymStr,
-                            date: dateStr,
-                            title: sub.title,
-                            amount: sub.amount,
-                            category: sub.category,
-                            updatedAt: Date.now()
-                        };
-                        if (sub.memo) newItem.memo = sub.memo;
-                        db.push(newItem);
+                        const pendingItem = pendingRestoreMap.get(subMonthKey) || pendingRestoreMap.get(`id_${entryId}`);
+                        if (pendingItem) {
+                            pendingItem.date = dateStr;
+                            pendingItem.subYm = ymStr;
+                            pendingItem.title = sub.title;
+                            pendingItem.amount = sub.amount;
+                            pendingItem.category = sub.category;
+                            if (sub.memo) pendingItem.memo = sub.memo; else delete pendingItem.memo;
+                            delete pendingItem.deleted;
+                            delete pendingItem.pendingSubDay;
+                            pendingItem.updatedAt = Date.now();
+                        } else {
+                            const newItem = {
+                                id: entryId,
+                                subId: sub.id,
+                                subYm: ymStr,
+                                date: dateStr,
+                                title: sub.title,
+                                amount: sub.amount,
+                                category: sub.category,
+                                updatedAt: Date.now()
+                            };
+                            if (sub.memo) newItem.memo = sub.memo;
+                            db.push(newItem);
+                        }
                         existingIds.add(entryId);
                         existingSubMonths.add(subMonthKey);
                         addedCount++;
@@ -654,7 +820,6 @@
                     }
                 }
 
-                const curYmStr = `${curY}-${String(curM).padStart(2, '0')}`;
                 if (sub.endMonth && sub.endMonth < curYmStr && sub.active !== false) {
                     sub.active = false;
                     sub.updatedAt = Date.now();
@@ -808,12 +973,21 @@
 
         function renderCats() {
             const sel = document.getElementById('in-cat');
-            const prevVal = sel.value;
-            const h = cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+            const editingItem = editId ? db.find(i => i.id === editId && !i.deleted) : null;
+            const prevVal = sel.value || (editingItem ? editingItem.category : '');
+            let h = cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+            if (editId && prevVal && !cats.includes(prevVal)) {
+                h += `<option value="${escapeHtml(prevVal)}">${escapeHtml(prevVal)} (廃止)</option>`;
+            }
             sel.innerHTML = h;
-            if (prevVal && cats.includes(prevVal)) sel.value = prevVal;
+            if (prevVal && (cats.includes(prevVal) || editId)) sel.value = prevVal;
 
-            document.getElementById('stat-cat').innerHTML = cats.filter(c=>c!=='収入').map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+            const statCatEl = document.getElementById('stat-cat');
+            const prevStatCat = statCatEl.value;
+            const allExpCats = [...new Set([...cats, ...getActiveDb().map(i => i.category).filter(Boolean)])].filter(c => c !== '収入');
+            statCatEl.innerHTML = allExpCats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+            if (prevStatCat && allExpCats.includes(prevStatCat)) statCatEl.value = prevStatCat;
+
             renderQuickCats();
             renderFreqShortcuts();
         }
@@ -824,25 +998,52 @@
             document.getElementById('t-'+m).classList.add('tab-active');
             document.getElementById('view-main').style.display = (m==='stats'?'none':'block');
             document.getElementById('view-stats').style.display = (m==='stats'?'block':'none');
+            if (m === 'month' && !editId) {
+                const now = new Date();
+                if (focus.getFullYear() === now.getFullYear() && focus.getMonth() === now.getMonth()) {
+                    focus = now;
+                    document.getElementById('in-date').value = getLocalTodayStr(now);
+                } else {
+                    document.getElementById('in-date').value = getLocalTodayStr(focus);
+                }
+            }
             if(m === 'stats') drawStats(); else render();
         }
 
         function move(d) {
             if (isNaN(focus.getTime())) focus = new Date();
-            if(mode==='day') focus.setDate(focus.getDate()+d);
-            else focus.setMonth(focus.getMonth()+d);
+            if (mode === 'day') {
+                focus.setDate(focus.getDate() + d);
+            } else {
+                const targetY = focus.getFullYear();
+                const targetM = focus.getMonth() + d;
+                const now = new Date();
+                const targetMonthFirst = new Date(targetY, targetM, 1);
+                const maxDay = new Date(targetY, targetM + 1, 0).getDate();
+                const isCurrentMonth = (targetMonthFirst.getFullYear() === now.getFullYear() && targetMonthFirst.getMonth() === now.getMonth());
+                const desiredDay = isCurrentMonth ? now.getDate() : focus.getDate();
+                focus = new Date(targetY, targetM, Math.min(desiredDay, maxDay));
+            }
             render();
         }
 
         function syncFromInput() {
             const inputEl = document.getElementById('in-date');
             const d = inputEl.value;
+            if (editId) {
+                // 既存明細の編集中は表示月ジャンプを行わず、クリアされた場合は編集中の明細の元の日付に復元する
+                if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+                    const editingItem = db.find(i => i.id === editId && !i.deleted);
+                    inputEl.value = (editingItem && editingItem.date) ? editingItem.date : getLocalTodayStr(focus);
+                }
+                return;
+            }
             if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
                 const parts = d.split('-').map(Number);
                 const nextDate = new Date(parts[0], parts[1] - 1, parts[2]);
                 if (!isNaN(nextDate.getTime())) {
                     focus = nextDate;
-                    if (mode !== 'day') setView('day'); else render();
+                    render();
                     return;
                 }
             }
@@ -876,13 +1077,14 @@
         function handleSuggest(val) {
             renderFreqShortcuts();
             const box = document.getElementById('suggest-box');
-            if (!val) { box.style.display = 'none'; return; }
+            const q = (val || '').trim().toLowerCase();
+            if (!q) { box.style.display = 'none'; return; }
             const matches = [];
             const seen = new Set();
             for (let i = 0; i < db.length; i++) {
                 const item = db[i];
                 if (item.deleted) continue;
-                if (item.title && item.title.includes(val) && !seen.has(item.title)) {
+                if (item.title && item.title.toLowerCase().includes(q) && !seen.has(item.title)) {
                     seen.add(item.title);
                     matches.push({ title: item.title, category: item.category });
                 }
@@ -891,7 +1093,7 @@
             if (matches.length > 0) {
                 box.innerHTML = matches.map(m => {
                     const col = getCatColor(m.category);
-                    return `<div class="suggest-item" onclick="selectSuggest('${escapeJsStr(m.title)}', '${escapeJsStr(m.category)}')">
+                    return `<div class="suggest-item" onmousedown="event.preventDefault()" onclick="selectSuggest('${escapeJsStr(m.title)}', '${escapeJsStr(m.category)}')">
                         <span>${escapeHtml(m.title)}</span>
                         <span class="suggest-cat" style="color:${col}; background:${col}22; border:1px solid ${col}66;">${escapeHtml(m.category)}</span>
                     </div>`;
@@ -903,22 +1105,40 @@
         }
 
         function selectSuggest(title, cat) {
-            document.getElementById('in-title').value = title;
+            const titleEl = document.getElementById('in-title');
+            titleEl.value = title;
             if (cats.includes(cat)) document.getElementById('in-cat').value = cat;
             renderQuickCats();
             renderFreqShortcuts();
             closeSuggest();
+            titleEl.blur();
         }
 
         function closeSuggest() { document.getElementById('suggest-box').style.display = 'none'; }
 
+        let isAmtFreshOnEdit = false;
+
         function num(n) {
-            if (n === 'C') currentAmt = "";
-            else if (n === 'BS') currentAmt = currentAmt.slice(0, -1);
-            else if (currentAmt.length < 8) currentAmt += n;
+            if (n === 'C') {
+                currentAmt = "";
+                isAmtFreshOnEdit = false;
+            } else if (n === 'BS') {
+                currentAmt = currentAmt.slice(0, -1);
+                isAmtFreshOnEdit = false;
+            } else {
+                const digit = String(n);
+                if (isAmtFreshOnEdit) {
+                    isAmtFreshOnEdit = false;
+                    currentAmt = digit === "0" ? "" : digit;
+                } else {
+                    if (currentAmt === "" && digit === "0") return;
+                    if (currentAmt === "0") currentAmt = digit;
+                    else if (currentAmt.length < 10) currentAmt += digit;
+                }
+            }
             const amtDisplay = document.getElementById('in-amt');
             amtDisplay.dataset.val = currentAmt;
-            amtDisplay.value = currentAmt ? parseInt(currentAmt).toLocaleString() : "";
+            amtDisplay.value = currentAmt ? parseInt(currentAmt, 10).toLocaleString() : "";
         }
 
         function edit(id) {
@@ -927,11 +1147,12 @@
             
             editId = id; 
             document.getElementById('in-date').value = item.date;
+            const catSel = document.getElementById('in-cat');
             if (!cats.includes(item.category)) {
-                cats.push(item.category);
-                renderCats();
+                catSel.innerHTML = cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('') +
+                    `<option value="${escapeHtml(item.category)}">${escapeHtml(item.category)} (廃止)</option>`;
             }
-            document.getElementById('in-cat').value = item.category;
+            catSel.value = item.category;
             document.getElementById('in-title').value = item.title;
             renderQuickCats();
             renderFreqShortcuts();
@@ -943,6 +1164,7 @@
             updateMemoBtnState();
 
             currentAmt = item.amount.toString();
+            isAmtFreshOnEdit = true;
             const amtDisplay = document.getElementById('in-amt');
             amtDisplay.dataset.val = currentAmt;
             amtDisplay.value = parseInt(currentAmt).toLocaleString();
@@ -958,8 +1180,9 @@
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
-        function cancelEdit() {
+        function cancelEdit(keepDate = false) {
             editId = null; 
+            isAmtFreshOnEdit = false;
             document.getElementById('in-title').value = ''; 
             document.getElementById('in-memo').value = '';
             document.getElementById('memo-wrap').style.display = 'none';
@@ -978,12 +1201,15 @@
             document.getElementById('edit-banner').style.display = 'none';
             document.getElementById('input-card').style.borderColor = '#333';
             
-            if (mode === 'day') {
-                const y = focus.getFullYear(), m = String(focus.getMonth() + 1).padStart(2, '0'), d = String(focus.getDate()).padStart(2, '0');
-                document.getElementById('in-date').value = `${y}-${m}-${d}`;
-            } else {
-                document.getElementById('in-date').value = getLocalTodayStr();
+            if (!keepDate) {
+                const now = new Date();
+                if (mode === 'day' || focus.getFullYear() !== now.getFullYear() || focus.getMonth() !== now.getMonth()) {
+                    document.getElementById('in-date').value = getLocalTodayStr(focus);
+                } else {
+                    document.getElementById('in-date').value = getLocalTodayStr();
+                }
             }
+            renderCats();
             renderQuickCats();
             renderFreqShortcuts();
         }
@@ -996,6 +1222,7 @@
             const c = document.getElementById('in-cat').value;
             
             if(!a || !d) return;
+            const wasEditing = Boolean(editId);
             
             if (editId) {
                 const index = db.findIndex(i => i.id === editId);
@@ -1019,7 +1246,7 @@
             sortDbDesc();
             save();
             render();
-            cancelEdit(); 
+            cancelEdit(!wasEditing); 
             closeSuggest();
         }
 
@@ -1032,8 +1259,11 @@
             const targetDayStr = `${fy}-${fm}-${fd}`;
 
             label.innerText = mode === 'day' ? focus.toLocaleDateString('ja-JP') : `${fy}年 ${focus.getMonth()+1}月`;
-            if (mode === 'day' && !editId) { 
-                document.getElementById('in-date').value = targetDayStr;
+            if (!editId) {
+                const inDateEl = document.getElementById('in-date');
+                if (mode === 'day' || !inDateEl.value || !inDateEl.value.startsWith(targetMonthPrefix)) {
+                    inDateEl.value = targetDayStr;
+                }
             }
 
             let si=0, so=0, h='', last='';
@@ -1106,7 +1336,8 @@
             const a = parseInt(document.getElementById('in-amt').dataset.val) || 0;
             const c = document.getElementById('in-cat').value;
 
-            const dayVal = d ? Math.min(parseInt(d.split('-')[2], 10), 28).toString() : '1';
+            const rawDay = d ? parseInt(d.split('-')[2], 10) : 1;
+            const dayVal = rawDay > 28 ? 'last' : String(rawDay || 1);
             const now = new Date();
             const nextM = new Date(now.getFullYear(), now.getMonth() + 1, 1);
             const defaultStart = editId ? getYearMonthStr(nextM) : getYearMonthStr(now);
@@ -1149,10 +1380,11 @@
             }
             dayOptions += `<option value="last" ${formData.day === 'last' ? 'selected' : ''}>毎月 月末</option>`;
 
-            const catOptions = cats.map(c => `<option value="${escapeHtml(c)}" ${formData.category === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
+            const subCatList = (formData.category && !cats.includes(formData.category)) ? [...cats, formData.category] : cats;
+            const catOptions = subCatList.map(c => `<option value="${escapeHtml(c)}" ${formData.category === c ? 'selected' : ''}>${escapeHtml(c)}${!cats.includes(c) ? ' (廃止)' : ''}</option>`).join('');
 
             const monthlyTotal = activeSubs
-                .filter(s => s.active !== false && (!s.endMonth || s.endMonth >= thisMonthStr) && s.category !== '収入')
+                .filter(s => s.active !== false && (!s.startMonth || s.startMonth <= thisMonthStr) && (!s.endMonth || s.endMonth >= thisMonthStr) && s.category !== '収入')
                 .reduce((sum, s) => sum + s.amount, 0);
 
             let listHtml = '';
@@ -1198,10 +1430,10 @@
                         <select id="sub-cat" style="flex:1;">${catOptions}</select>
                     </div>
                     <div class="flex gap-2">
-                        <input type="text" id="sub-title" placeholder="項目名 (例: Netflix, 月謝)" value="${(formData.title || '').replace(/"/g, '&quot;')}" style="flex:1.3;">
+                        <input type="text" id="sub-title" placeholder="項目名 (例: Netflix, 月謝)" value="${escapeHtml(formData.title || '')}" style="flex:1.3;">
                         <input type="number" id="sub-amt" placeholder="金額" value="${formData.amount}" style="flex:1;">
                     </div>
-                    <input type="text" id="sub-memo" placeholder="メモ・注釈(任意)" value="${(formData.memo || '').replace(/"/g, '&quot;')}" style="font-size:12px;">
+                    <input type="text" id="sub-memo" placeholder="メモ・注釈(任意)" value="${escapeHtml(formData.memo || '')}" style="font-size:12px;">
                     <div class="flex justify-between items-center" style="margin-top:2px;">
                         <span style="font-size:11px; color:#aaa;">開始月:</span>
                         <input type="month" id="sub-start" value="${formData.startMonth}" style="padding:4px 8px; font-size:12px;">
@@ -1252,21 +1484,28 @@
                 return;
             }
 
-            const curYmStr = getYearMonthStr(new Date());
+            const nowObj = new Date();
+            const curYmStr = getYearMonthStr(nowObj);
+            const curD = nowObj.getDate();
             const isAlreadyEnded = Boolean(endMonth && endMonth < curYmStr);
             let targetSubId = editingSubId;
             let cleanedCount = 0;
+            let nextActive = !isAlreadyEnded;
 
             if (editingSubId) {
                 const idx = subs.findIndex(s => s.id === editingSubId);
                 if (idx !== -1) {
-                    const nextActive = isAlreadyEnded ? false : (subs[idx].active === false && !endMonth ? true : subs[idx].active !== false);
+                    const wasManuallyPaused = Boolean(subs[idx].manualPause);
+                    nextActive = isAlreadyEnded ? false : (wasManuallyPaused ? false : true);
                     subs[idx] = {
                         ...subs[idx],
                         title, amount, category, day, startMonth,
                         active: nextActive,
                         updatedAt: Date.now()
                     };
+                    if (subs[idx].resumeMonth && subs[idx].resumeMonth <= startMonth) {
+                        delete subs[idx].resumeMonth;
+                    }
                     if (endMonth) subs[idx].endMonth = endMonth; else delete subs[idx].endMonth;
                     if (memo) subs[idx].memo = memo; else delete subs[idx].memo;
                 }
@@ -1276,7 +1515,7 @@
                 const newSub = {
                     id: compactId,
                     title, amount, category, day, startMonth,
-                    active: !isAlreadyEnded,
+                    active: nextActive,
                     updatedAt: Date.now()
                 };
                 if (endMonth) newSub.endMonth = endMonth;
@@ -1286,32 +1525,80 @@
 
             if (targetSubId) {
                 const nowTs = Date.now();
+
+                // 編集時、新しい開始月より前（当月すでに記帳済みの分を含む）に明細がある場合は誤削除を防ぐため確認
+                let keepPastBeforeStart = true;
+                if (editingSubId) {
+                    const pastBeforeStartCount = db.filter(item =>
+                        item.subId === targetSubId &&
+                        !item.deleted &&
+                        item.date &&
+                        (item.subYm || item.date.substring(0, 7)) < startMonth &&
+                        (item.subYm || item.date.substring(0, 7)) <= curYmStr
+                    ).length;
+                    if (pastBeforeStartCount > 0) {
+                        keepPastBeforeStart = confirm(
+                            `開始月（${startMonth}）より前に、自動記帳済みの明細が ${pastBeforeStartCount}件 あります。\n` +
+                            `記帳済みの明細は消さずにそのまま残しますか？\n` +
+                            `（※料金改定などでこれまでの履歴を残す場合は「OK」、誤登録分を消去したい場合は「キャンセル」を押してください）`
+                        );
+                    }
+                }
+
                 db.forEach(item => {
-                    if (item.subId === targetSubId && !item.deleted && item.date) {
+                    if (item.subId === targetSubId && (!item.deleted || item.pendingSubDay) && item.date) {
                         const ym = item.subYm || item.date.substring(0, 7);
-                        if (ym < startMonth || (endMonth && ym > endMonth)) {
+                        const isBeforeStart = ym < startMonth && (!keepPastBeforeStart || ym > curYmStr || Boolean(item.pendingSubDay));
+                        const isAfterEnd = Boolean(endMonth && ym > endMonth);
+
+                        if (isBeforeStart || isAfterEnd) {
+                            if (!item.deleted) cleanedCount++;
                             item.deleted = true;
+                            delete item.pendingSubDay;
                             item.updatedAt = nowTs;
-                            cleanedCount++;
                         } else if (editingSubId && ym >= curYmStr && !item.manuallyEdited) {
                             const [yStr, mStr] = ym.split('-');
                             const lastDay = new Date(parseInt(yStr, 10), parseInt(mStr, 10), 0).getDate();
                             const tDay = (day === 'last' || parseInt(day, 10) >= lastDay) ? lastDay : parseInt(day, 10);
-                            item.date = `${ym}-${String(tDay).padStart(2, '0')}`;
-                            item.subYm = ym;
-                            item.title = title;
-                            item.amount = amount;
-                            item.category = category;
-                            if (memo) item.memo = memo; else delete item.memo;
-                            item.updatedAt = nowTs;
+
+                            if (!nextActive) {
+                                // 停止中の定期項目を編集した場合は、未到来待機明細を復活させず、既存の有効明細のみ内容を更新
+                                if (!item.deleted) {
+                                    item.date = `${ym}-${String(tDay).padStart(2, '0')}`;
+                                    item.subYm = ym;
+                                    item.title = title;
+                                    item.amount = amount;
+                                    item.category = category;
+                                    if (memo) item.memo = memo; else delete item.memo;
+                                    item.updatedAt = nowTs;
+                                }
+                            } else if (ym > curYmStr || (ym === curYmStr && curD < tDay)) {
+                                if (!item.deleted) cleanedCount++;
+                                item.deleted = true;
+                                item.pendingSubDay = true;
+                                item.updatedAt = nowTs;
+                            } else {
+                                item.date = `${ym}-${String(tDay).padStart(2, '0')}`;
+                                item.subYm = ym;
+                                item.title = title;
+                                item.amount = amount;
+                                item.category = category;
+                                if (memo) item.memo = memo; else delete item.memo;
+                                delete item.deleted;
+                                delete item.pendingSubDay;
+                                item.updatedAt = nowTs;
+                            }
                         }
                     }
                 });
             }
 
             const added = processSubscriptions();
+            sortDbDesc();
+            cancelEdit();
             save();
             render();
+            if (mode === 'stats') drawStats();
             openSubsModal();
             if (added > 0 || cleanedCount > 0) {
                 showToast(`🔄 定期反映 (追加:${added}件 / 期間外整理:${cleanedCount}件)`);
@@ -1327,7 +1614,22 @@
                 delete sub.endMonth;
             }
             sub.active = (sub.active === false) ? true : false;
-            sub.updatedAt = Date.now();
+            const nowTs = Date.now();
+            if (sub.active === false) {
+                sub.manualPause = true;
+                db.forEach(item => {
+                    if (item.subId === id && item.deleted && item.pendingSubDay) {
+                        delete item.pendingSubDay;
+                        item.updatedAt = nowTs;
+                    }
+                });
+            } else {
+                delete sub.manualPause;
+                if (sub.startMonth && sub.startMonth < curYmStr) {
+                    sub.resumeMonth = curYmStr;
+                }
+            }
+            sub.updatedAt = nowTs;
             if (sub.active) processSubscriptions();
             save();
             render();
@@ -1361,7 +1663,7 @@
                 years.forEach(y => periods.push(y));
             }
 
-            const expCats = cats.filter(c => c !== '収入');
+            const expCats = [...new Set([...cats, ...activeList.map(i => i.category).filter(Boolean)])].filter(c => c !== '収入');
             const catColors = {};
             expCats.forEach(c => { catColors[c] = getCatColor(c); });
 
@@ -1393,20 +1695,24 @@
                 tsSvg += `<text x="-35" y="${y+3}" class="axis-label">${val>=10000?(val/10000)+'万':val}</text>`;
             }
             const step = 320 / (data.length || 1);
+            const barW = Math.min(step * 0.35, 28);
+            const barGap = Math.min(step * 0.05, 4);
             data.forEach((d, i) => {
-                const x = i * step + 5;
+                const cx = i * step + (step / 2);
+                const xIn = cx - barW - (barGap / 2);
+                const xOut = cx + (barGap / 2);
                 const hIn = (d.income / maxVal) * 120;
-                tsSvg += `<rect x="${x}" y="${140-hIn}" width="${step*0.35}" height="${hIn}" class="bar-income" />`;
+                tsSvg += `<rect x="${xIn}" y="${140-hIn}" width="${barW}" height="${hIn}" class="bar-income" />`;
                 
                 let currentY = 140;
                 expCats.forEach(cat => {
                     if(d.expensesByCat[cat]) {
                         const hOut = (d.expensesByCat[cat] / maxVal) * 120;
                         currentY -= hOut;
-                        tsSvg += `<rect x="${x+step*0.4}" y="${currentY}" width="${step*0.35}" height="${hOut}" fill="${catColors[cat] || '#888'}" stroke="var(--card)" stroke-width="0.8" opacity="0.95" />`;
+                        tsSvg += `<rect x="${xOut}" y="${currentY}" width="${barW}" height="${hOut}" fill="${catColors[cat] || '#888'}" stroke="var(--card)" stroke-width="0.8" opacity="0.95" />`;
                     }
                 });
-                tsSvg += `<text x="${x}" y="155" class="axis-label" style="font-size:7px">${d.label}</text>`;
+                tsSvg += `<text x="${cx}" y="155" text-anchor="middle" class="axis-label" style="font-size:7px">${d.label}</text>`;
             });
             tsSvg += `</svg>`;
             tsCont.innerHTML = tsSvg;
@@ -1430,8 +1736,9 @@
             let catSvg = `<svg viewBox="0 0 320 160">`;
             for(let i=0; i<=4; i++) {
                 const y = 140 - (i * 30);
+                const val = (catMax / 4) * i;
                 catSvg += `<line x1="0" y1="${y}" x2="320" y2="${y}" class="grid-line" />`;
-                catSvg += `<text x="-35" y="${y+3}" class="axis-label">${((catMax/4)*i/10000)}万</text>`;
+                catSvg += `<text x="-35" y="${y+3}" class="axis-label">${val>=10000?(val/10000)+'万':val}</text>`;
             }
             let points = "";
             catData.forEach((val, i) => {
@@ -1443,7 +1750,8 @@
             catSvg += `<polyline points="${points}" fill="none" stroke="${targetColor}" stroke-width="2" />`;
             periods.forEach((p, i) => {
                 const label = unit==='month' ? p.split('-')[1]+'月' : p+'年';
-                catSvg += `<text x="${i*step+2}" y="155" class="axis-label" style="font-size:7px">${label}</text>`;
+                const cx = i * step + (step / 2);
+                catSvg += `<text x="${cx}" y="155" text-anchor="middle" class="axis-label" style="font-size:7px">${label}</text>`;
             });
             catSvg += `</svg>`;
             catCont.innerHTML = catSvg;
@@ -1471,7 +1779,12 @@
             }).join('');
             m.style.display = 'flex';
         }
-        function jumpToYear(y) { focus.setFullYear(y); render(); document.getElementById('modal').style.display='none'; }
+        function jumpToYear(y) {
+            const maxDay = new Date(y, focus.getMonth() + 1, 0).getDate();
+            focus = new Date(y, focus.getMonth(), Math.min(focus.getDate(), maxDay));
+            render();
+            document.getElementById('modal').style.display = 'none';
+        }
 
         /* --- ファイル出力（JSON / CSV） --- */
         let exportFormat = 'json';
@@ -1517,6 +1830,10 @@
 
             const now = new Date();
             const sourceList = (fmt === 'json') ? db : getActiveDb();
+            // JSON出力時は、期間外の過去明細であっても直近90日以内に編集・削除されたものは同期漏れ防止のため含める
+            const recentSyncCutoffTs = Date.now() - (90 * 24 * 60 * 60 * 1000);
+            const isRecentlyModified = (item) => (fmt === 'json' && item.updatedAt && item.updatedAt >= recentSyncCutoffTs);
+
             let filteredDb = [];
             let filenameSuffix = "";
 
@@ -1525,16 +1842,16 @@
                 filenameSuffix = "all";
             } else if (rangeType === 'year') {
                 const thisYear = now.getFullYear().toString();
-                filteredDb = sourceList.filter(i => i.date && i.date.startsWith(thisYear));
+                filteredDb = sourceList.filter(i => (i.date && i.date.startsWith(thisYear)) || isRecentlyModified(i));
                 filenameSuffix = `${thisYear}`;
             } else if (rangeType === '3months') {
                 const cutoff = new Date(now.getFullYear(), now.getMonth() - 2, 1);
                 const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-01`;
-                filteredDb = sourceList.filter(i => i.date && i.date >= cutoffStr);
+                filteredDb = sourceList.filter(i => (i.date && i.date >= cutoffStr) || isRecentlyModified(i));
                 filenameSuffix = "recent_3months";
             } else if (rangeType === 'month') {
                 const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-                filteredDb = sourceList.filter(i => i.date && i.date.startsWith(thisMonth));
+                filteredDb = sourceList.filter(i => (i.date && i.date.startsWith(thisMonth)) || isRecentlyModified(i));
                 filenameSuffix = thisMonth;
             }
 
@@ -1547,19 +1864,22 @@
                     range: rangeType,
                     householdOnly: onlyHousehold,
                     cats: cats,
+                    catsUpdatedAt: catsUpdatedAt,
                     subs: subs,
                     annualSubs: annualSubs,
                     budgets: budgets,
                     budgetsUpdatedAt: budgetsUpdatedAt,
+                    clearedAssetMonths: clearedAssetMonths,
                     db: filteredDb
                 };
                 // チェックを外した時のみ金融資産データ一式も同梱する
                 if (!onlyHousehold) {
                     payload.assetRecords = assetRecords;
                     payload.records = assetRecords;
-                    payload.clearedAssetMonths = clearedAssetMonths;
                     payload.rebTargets = rebTargets;
+                    payload.rebTargetsUpdatedAt = rebTargetsUpdatedAt;
                     payload.simParams = simParams;
+                    payload.simParamsUpdatedAt = simParamsUpdatedAt;
                 }
                 mimeType = 'application/json';
                 blob = new Blob([JSON.stringify(payload, null, 2)], { type: mimeType });
@@ -1595,16 +1915,19 @@
             const r = new FileReader();
             r.onload = (ev) => {
                 try {
-                    const d = JSON.parse(ev.target.result);
-                    const hasDb = d && Array.isArray(d.db);
-                    const hasAssets = d && (Array.isArray(d.assetRecords) || Array.isArray(d.records));
+                    const raw = JSON.parse(ev.target.result);
+                    const isAssetArray = Array.isArray(raw) && raw.length > 0 && raw[0].month && Array.isArray(raw[0].assets);
+                    const d = isAssetArray ? { sourceApp: "GemAssetManager", records: raw } : raw;
+                    const hasDb = Boolean(d && Array.isArray(d.db));
+                    const hasAssets = Boolean(d && (Array.isArray(d.assetRecords) || Array.isArray(d.records)));
                     if (hasDb || hasAssets) {
+                        d._hasHouseholdDb = hasDb;
                         if (!hasDb) d.db = [];
                         pendingImportData = d;
                         const cutoffStr = getImportCutoffDateStr();
                         const totalActive = d.db.filter(i => !i.deleted).length;
                         const recentActive = d.db.filter(i => !i.deleted && i.date && i.date >= cutoffStr).length;
-                        openImportModal(recentActive, totalActive, cutoffStr);
+                        openImportModal(recentActive, totalActive, cutoffStr, hasDb);
                     } else {
                         alert("対応するデータ形式ではありません。");
                     }
@@ -1616,26 +1939,46 @@
             r.readAsText(file);
         }
 
-        function openImportModal(recentCount, totalCount, cutoffStr) {
+        function openImportModal(recentCount, totalCount, cutoffStr, hasDb = true) {
             const m = document.getElementById('modal');
             const b = document.getElementById('m-body');
-            document.getElementById('m-title').innerText = `JSON読込 (直近2年分: ${recentCount}件)`;
+            const isPartialRange = Boolean(pendingImportData && pendingImportData.range && pendingImportData.range !== 'all' && pendingImportData.range !== '2years');
+            const canOverwrite = hasDb && !isPartialRange;
+
+            document.getElementById('m-title').innerText = hasDb
+                ? `JSON読込 (直近2年分: ${recentCount}件)`
+                : `資産JSON読込 (家計明細なし)`;
             b.style.gridTemplateColumns = '1fr';
             const omittedCount = Math.max(0, totalCount - recentCount);
 
-            b.innerHTML = `
-                <div style="font-size:11px; color:#aaa; background:#161616; padding:8px 10px; border-radius:6px; border:1px solid #2a2a2a; line-height:1.4;">
+            const partialNote = isPartialRange
+                ? `<br><span style="color:var(--yellow);">※期間指定（${escapeHtml(pendingImportData.range)}）の部分出力ファイルのため、過去データの消失を防ぐため「統合（マージ）」のみ実行可能です。</span>`
+                : '';
+
+            const infoHtml = hasDb
+                ? `<div style="font-size:11px; color:#aaa; background:#161616; padding:8px 10px; border-radius:6px; border:1px solid #2a2a2a; line-height:1.4;">
                     ⚡ <b>スマホ軽量化フィルタ適用:</b><br>
-                    ${cutoffStr} 以降の明細（<b>${recentCount}件</b>）のみを取り込みます${omittedCount > 0 ? `（それ以前の過去データ ${omittedCount}件 はPC側GemWalletで保管されるためスマホからは除外）` : ''}。
-                </div>
-                <button class="card" onclick="executeImport('merge')" style="padding:14px; text-align:left; border-color:var(--blue);">
-                    <div style="color:var(--blue); font-size:15px; margin-bottom:4px;">🔄 既存データと統合（マージ）</div>
-                    <div style="font-size:11px; color:#aaa; font-weight:normal;">直近2年分の明細・定期登録設定を判定して最新の状態に統合します（推奨）</div>
-                </button>
-                <button class="card" onclick="executeImport('overwrite')" style="padding:14px; text-align:left;">
+                    ${cutoffStr} 以降の明細（<b>${recentCount}件</b>）のみを取り込みます${omittedCount > 0 ? `（それ以前の過去データ ${omittedCount}件 はPC側GemWalletで保管されるためスマホからは除外）` : ''}。${partialNote}
+                </div>`
+                : `<div style="font-size:11px; color:var(--yellow); background:#161616; padding:8px 10px; border-radius:6px; border:1px solid var(--yellow); line-height:1.4;">
+                    💎 <b>金融資産専用ファイル:</b><br>
+                    このファイルには家計簿明細が含まれていないため、スマホ内の家計簿を保護するため「統合（マージ）」のみ実行可能です。
+                </div>`;
+
+            const overwriteBtnHtml = canOverwrite
+                ? `<button class="card" onclick="executeImport('overwrite')" style="padding:14px; text-align:left;">
                     <div style="color:var(--red); font-size:15px; margin-bottom:4px;">⚠️ 完全に上書き（置換）</div>
                     <div style="font-size:11px; color:#aaa; font-weight:normal;">現在のスマホ内のデータをすべて消去し、ファイルの直近2年分に置き換えます</div>
+                </button>`
+                : '';
+
+            b.innerHTML = `
+                ${infoHtml}
+                <button class="card" onclick="executeImport('merge')" style="padding:14px; text-align:left; border-color:var(--blue);">
+                    <div style="color:var(--blue); font-size:15px; margin-bottom:4px;">🔄 既存データと統合（マージ）</div>
+                    <div style="font-size:11px; color:#aaa; font-weight:normal;">${hasDb ? '直近2年分の明細・定期登録設定を判定して最新の状態に統合します（推奨）' : 'スマホ内の家計簿を維持したまま、金融資産データのみを最新状態に統合します'}</div>
                 </button>
+                ${overwriteBtnHtml}
             `;
             m.style.display = 'flex';
         }
@@ -1647,13 +1990,25 @@
             document.getElementById('modal').style.display = 'none';
 
             const cutoffStr = getImportCutoffDateStr();
-            const incomingRecentDb = d.db.filter(i => i && i.date && i.date >= cutoffStr);
+            const incomingRecentDb = d.db.filter(i => {
+                if (!i || !i.date || i.date < cutoffStr) return false;
+                const amt = Number(i.amount);
+                if (!Number.isFinite(amt) || amt <= 0) return false;
+                i.amount = amt;
+                return true;
+            });
+            const isPartialRange = Boolean(d.range && d.range !== 'all' && d.range !== '2years');
 
             if (type === 'overwrite') {
+                if (!d._hasHouseholdDb || isPartialRange) {
+                    alert("家計簿明細が含まれないファイル、または期間指定の部分出力ファイルのため完全上書きは実行できません。「既存データと統合（マージ）」を選択してください。");
+                    return;
+                }
                 if (!confirm(`本当に現在のデータを消去し、直近2年分（${cutoffStr}以降）のデータで上書きしますか？`)) return;
                 db = incomingRecentDb;
                 if (d.cats && Array.isArray(d.cats)) {
                     cats = [...new Set([...d.cats, '収入'])];
+                    catsUpdatedAt = d.catsUpdatedAt || Date.now();
                 }
                 if (d.subs && Array.isArray(d.subs)) {
                     subs = d.subs;
@@ -1679,8 +2034,20 @@
                 } else if (!d.householdOnly) {
                     assetRecords = [];
                 }
-                rebTargets = d.rebTargets || null;
-                simParams = d.simParams || null;
+                if (d.rebTargets !== undefined) {
+                    rebTargets = d.rebTargets || null;
+                    rebTargetsUpdatedAt = d.rebTargetsUpdatedAt || (d.rebTargets && d.rebTargets.updatedAt) || 0;
+                } else if (!d.householdOnly) {
+                    rebTargets = null;
+                    rebTargetsUpdatedAt = 0;
+                }
+                if (d.simParams !== undefined) {
+                    simParams = d.simParams || null;
+                    simParamsUpdatedAt = d.simParamsUpdatedAt || (d.simParams && d.simParams.updatedAt) || 0;
+                } else if (!d.householdOnly) {
+                    simParams = null;
+                    simParamsUpdatedAt = 0;
+                }
                 lastSyncInfo = {
                     time: Date.now(),
                     action: '取込(上書き)',
@@ -1692,6 +2059,7 @@
                 save();
                 renderCats();
                 render();
+                if (mode === 'stats') drawStats();
                 alert(`直近2年分（${getActiveDb().length}件）のデータを上書きしました。`);
             } else {
                 db = db.filter(i => i && i.date && i.date >= cutoffStr);
@@ -1707,19 +2075,35 @@
                         if (item.deleted && !existing.deleted) {
                             if (inTime >= exTime || exTime === 0) {
                                 existing.deleted = true;
+                                if (item.pendingSubDay) existing.pendingSubDay = true;
+                                else delete existing.pendingSubDay;
                                 existing.updatedAt = Math.max(inTime, exTime, Date.now());
                                 deletedSync++;
                             }
                         } else if (!item.deleted && existing.deleted) {
                             if (inTime > exTime) {
+                                delete existing.memo;
+                                delete existing.manuallyEdited;
+                                delete existing.annualSubId;
                                 Object.assign(existing, item);
                                 delete existing.deleted;
+                                delete existing.pendingSubDay;
                                 updated++;
                             }
                         } else if (!item.deleted && !existing.deleted) {
                             if (inTime >= exTime) {
+                                delete existing.memo;
+                                delete existing.manuallyEdited;
+                                delete existing.annualSubId;
+                                delete existing.pendingSubDay;
                                 Object.assign(existing, item);
                                 updated++;
+                            }
+                        } else if (item.deleted && existing.deleted) {
+                            if (inTime >= exTime) {
+                                if (item.pendingSubDay) existing.pendingSubDay = true;
+                                else delete existing.pendingSubDay;
+                                existing.updatedAt = Math.max(inTime, exTime);
                             }
                         }
                     } else {
@@ -1735,7 +2119,16 @@
                         if (subMap.has(inSub.id)) {
                             const exSub = subMap.get(inSub.id);
                             if ((inSub.updatedAt || 0) >= (exSub.updatedAt || 0)) {
+                                const preservedResumeMonth = exSub.resumeMonth;
+                                delete exSub.endMonth;
+                                delete exSub.memo;
+                                delete exSub.deleted;
+                                delete exSub.manualPause;
+                                delete exSub.resumeMonth;
                                 Object.assign(exSub, inSub);
+                                if (!exSub.resumeMonth && preservedResumeMonth && (!exSub.startMonth || preservedResumeMonth > exSub.startMonth)) {
+                                    exSub.resumeMonth = preservedResumeMonth;
+                                }
                             }
                         } else {
                             subs.push(inSub);
@@ -1751,6 +2144,8 @@
                         if (annMap.has(inAnn.id)) {
                             const exAnn = annMap.get(inAnn.id);
                             if ((inAnn.updatedAt || 0) >= (exAnn.updatedAt || 0)) {
+                                delete exAnn.memo;
+                                delete exAnn.deleted;
                                 Object.assign(exAnn, inAnn);
                             }
                         } else {
@@ -1760,8 +2155,20 @@
                     });
                 }
 
+                // カテゴリのタイムスタンプ比較（削除・並び替えの反映）
                 if (d.cats && Array.isArray(d.cats)) {
-                    cats = [...new Set([...cats, ...d.cats, '収入'])];
+                    const inCTime = d.catsUpdatedAt || 0;
+                    if (inCTime > 0 || catsUpdatedAt > 0) {
+                        if (inCTime >= catsUpdatedAt) {
+                            cats = [...new Set([...d.cats, '収入'])];
+                            catsUpdatedAt = inCTime;
+                        } else {
+                            cats = [...new Set([...cats, '収入'])];
+                        }
+                    } else {
+                        // 双方ともカテゴリ編集履歴がない初期状態の場合のみ合算
+                        cats = [...new Set([...cats, ...d.cats, '収入'])];
+                    }
                 }
                 if (d.budgets && typeof d.budgets === 'object') {
                     const inBTime = d.budgetsUpdatedAt || 0;
@@ -1781,40 +2188,49 @@
                         }
                     });
                 }
+                // 既存の資産から、削除履歴(clearedAssetMonths)より古いものを先にパージ
+                assetRecords = assetRecords.filter(rec => {
+                    if (!rec || !rec.month) return false;
+                    const cTs = clearedAssetMonths[rec.month] || 0;
+                    return !(cTs > 0 && (rec.updatedAt || 0) <= cTs);
+                });
+
                 const incomingAssets = Array.isArray(d.records) && d.records.length > 0
                     ? d.records
                     : (Array.isArray(d.assetRecords) ? d.assetRecords : null);
                 if (incomingAssets) {
-                    if (d.sourceApp === 'GemAssetManager') {
-                        const assetMap = new Map();
-                        incomingAssets.forEach(r => { if (r && r.month) assetMap.set(r.month, r); });
-                        assetRecords = Array.from(assetMap.values()).sort((a, b) => a.month.localeCompare(b.month));
-                    } else {
-                        const assetMap = new Map(assetRecords.map(r => [r.month, r]));
-                        const fileTs = d.exportedAt ? new Date(d.exportedAt).getTime() : 0;
-                        incomingAssets.forEach(r => {
-                            if (!r || !r.month) return;
-                            const inTime = r.updatedAt || fileTs || 0;
-                            const clearedTs = clearedAssetMonths[r.month] || 0;
-                            if (clearedTs > 0 && inTime <= clearedTs) return;
+                    // 既存の資産データを消さずに月単位でマージ
+                    const assetMap = new Map(assetRecords.map(r => [r.month, r]));
+                    const fileTs = d.exportedAt ? new Date(d.exportedAt).getTime() : 0;
+                    incomingAssets.forEach(r => {
+                        if (!r || !r.month) return;
+                        const inTime = r.updatedAt || fileTs || 0;
+                        const clearedTs = clearedAssetMonths[r.month] || 0;
+                        if (clearedTs > 0 && inTime <= clearedTs) return;
 
-                            const ex = assetMap.get(r.month);
-                            const exTime = ex ? (ex.updatedAt || 0) : 0;
-                            if (!ex || inTime >= exTime) {
-                                assetMap.set(r.month, r);
-                                delete clearedAssetMonths[r.month];
-                            }
-                        });
-                        for (const [m, rec] of assetMap.entries()) {
-                            if (clearedAssetMonths[m] && (rec.updatedAt || 0) <= clearedAssetMonths[m]) {
-                                assetMap.delete(m);
-                            }
+                        const ex = assetMap.get(r.month);
+                        const exTime = ex ? (ex.updatedAt || 0) : 0;
+                        if (!ex || inTime >= exTime) {
+                            assetMap.set(r.month, { ...r, updatedAt: inTime || Date.now() });
+                            delete clearedAssetMonths[r.month];
                         }
-                        assetRecords = Array.from(assetMap.values()).sort((a, b) => a.month.localeCompare(b.month));
+                    });
+                    assetRecords = Array.from(assetMap.values()).sort((a, b) => a.month.localeCompare(b.month));
+                }
+                if (d.rebTargets) {
+                    const inRTime = d.rebTargetsUpdatedAt || d.rebTargets.updatedAt || 0;
+                    if (!rebTargets || inRTime >= rebTargetsUpdatedAt) {
+                        rebTargets = d.rebTargets;
+                        rebTargetsUpdatedAt = inRTime;
                     }
                 }
-                if (d.rebTargets) rebTargets = d.rebTargets;
-                if (d.simParams) simParams = d.simParams;
+                if (d.simParams) {
+                    const inSTime = d.simParamsUpdatedAt || d.simParams.updatedAt || 0;
+                    if (!simParams || inSTime >= simParamsUpdatedAt) {
+                        simParams = d.simParams;
+                        simParamsUpdatedAt = inSTime;
+                    }
+                }
                 lastSyncInfo = {
                     time: Date.now(),
                     action: '取込(統合)',
@@ -1827,6 +2243,7 @@
                 save();
                 renderCats();
                 render();
+                if (mode === 'stats') drawStats();
                 alert(`統合完了（直近2年分）：新規 ${added + subAdded}件 追加 / ${updated}件 更新 / ${deletedSync}件 削除反映`);
             }
         }
@@ -1834,9 +2251,11 @@
         function manageCats() {
             const n = prompt("カテゴリ(,区切り)", cats.join(","));
             if(n) {
-                cats = n.split(",").map(s=>s.trim()).filter(s=>s);
+                cats = [...new Set(n.split(/[,、，]/).map(s=>s.trim()).filter(s=>s))];
                 if (!cats.includes("収入")) cats.push("収入");
+                catsUpdatedAt = Date.now();
                 save(); renderCats(); render();
+                if (mode === 'stats') drawStats();
             }
         }
         init();
